@@ -1541,3 +1541,310 @@ async fn read_dispatch_deadline_matches_documented_bounded_lifetime() {
     assert_eq!(expired.state, OperationState::Failed);
     assert!(expired.result.is_none());
 }
+
+fn recovery_snapshot(revision: &str) -> xscs_protocol::ConfigSnapshot {
+    xscs_protocol::ConfigSnapshot {
+        revision: revision.repeat(64),
+        sunshine_version: SUNSHINE_VERSION.into(),
+        fields: Default::default(),
+        effectiveness: xscs_protocol::Effectiveness::PendingVerification,
+    }
+}
+
+#[tokio::test]
+async fn interrupted_read_recovery_releases_both_lanes_and_late_result_preserves_new_snapshot() {
+    let (dir, pool) = database().await;
+    let (id, _) = registered(&pool).await;
+    let ops = manager(&pool);
+    let original = ops
+        .enqueue("admin", &id, "read-before-restart", Command::ReadConfig {})
+        .await
+        .unwrap();
+    session(&pool, &id, "before").await;
+    let claim = ops.next(&id, "before").await.unwrap().unwrap();
+    let binding = ops.task(&claim).unwrap().binding;
+    drop(ops);
+    pool.close().await;
+    let pool = db::open_or_initialize(&format!(
+        "sqlite://{}",
+        dir.path().join("state.db").display()
+    ))
+    .await
+    .unwrap();
+    let ops = manager(&pool);
+    ops.recover_startup().await.unwrap();
+    session(&pool, &id, "after").await;
+    let interrupted = ops
+        .receipt_operation(&original.operation_id, &binding)
+        .await
+        .unwrap();
+    assert_eq!(interrupted.operation.state, OperationState::DeadLetter);
+    assert_eq!(
+        interrupted.operation.error_code.as_deref(),
+        Some("unable_to_confirm")
+    );
+    let read = ops
+        .enqueue("admin", &id, "new-read", Command::ReadConfig {})
+        .await
+        .unwrap();
+    let write = ops
+        .enqueue(
+            "admin",
+            &id,
+            "new-save",
+            Command::SaveConfig {
+                set: Default::default(),
+                remove: xscs_protocol::config::FIELD_DEFINITIONS
+                    .iter()
+                    .filter(|field| field.operating_systems.contains(&"linux_x86_64"))
+                    .map(|field| field.key.to_owned())
+                    .collect(),
+                restart_policy: xscs_protocol::RestartPolicy::Manual,
+            },
+        )
+        .await
+        .unwrap();
+    let claim = ops.next(&id, "after").await.unwrap().unwrap();
+    assert_eq!(claim.operation.operation_id, read.operation_id);
+    ops.complete(
+        &claim,
+        "after",
+        Report::ConfigRead {
+            snapshot: recovery_snapshot("b"),
+        },
+    )
+    .await
+    .unwrap();
+    let claim = ops.next(&id, "after").await.unwrap().unwrap();
+    assert_eq!(claim.operation.operation_id, write.operation_id);
+    let mut saved = recovery_snapshot("c");
+    saved.effectiveness = xscs_protocol::Effectiveness::AwaitingRestart;
+    ops.complete(
+        &claim,
+        "after",
+        Report::ConfigSaved {
+            snapshot: saved.clone(),
+        },
+    )
+    .await
+    .unwrap();
+    // An interrupted read's delayed receipt belongs only to its own history.
+    ops.accept_replayed_result(
+        &interrupted,
+        "after",
+        Report::ConfigRead {
+            snapshot: recovery_snapshot("a"),
+        },
+    )
+    .await
+    .unwrap();
+    let device = db::get_device(&pool, &id)
+        .await
+        .unwrap()
+        .view(db::now_micros().unwrap())
+        .unwrap();
+    assert_eq!(device.snapshot, Some(saved));
+    assert_eq!(device.configuration_state, "awaiting_restart");
+    let original = ops
+        .get_for_actor("admin", &original.operation_id)
+        .await
+        .unwrap();
+    assert_eq!(original.state, OperationState::DeadLetter);
+    assert!(matches!(
+        original.reconciliation,
+        Some(Report::ConfigRead { .. })
+    ));
+    assert_eq!(
+        ops.get_for_actor("admin", &write.operation_id)
+            .await
+            .unwrap()
+            .state,
+        OperationState::Succeeded
+    );
+    drop(ops);
+    pool.close().await;
+    let pool = db::open_or_initialize(&format!(
+        "sqlite://{}",
+        dir.path().join("state.db").display()
+    ))
+    .await
+    .unwrap();
+    let ops = manager(&pool);
+    ops.recover_startup().await.unwrap();
+    assert_eq!(
+        ops.get_for_actor("admin", &original.operation_id)
+            .await
+            .unwrap()
+            .state,
+        OperationState::DeadLetter
+    );
+    assert_eq!(
+        db::get_device(&pool, &id)
+            .await
+            .unwrap()
+            .view(db::now_micros().unwrap())
+            .unwrap()
+            .snapshot
+            .unwrap()
+            .revision,
+        "c".repeat(64)
+    );
+}
+
+#[tokio::test]
+async fn live_expired_read_and_existing_unknown_read_release_without_manual_resolution() {
+    let (_dir, pool) = database().await;
+    let (id, _) = registered(&pool).await;
+    let ops = manager(&pool);
+    let queued = ops
+        .enqueue("admin", &id, "expired-read", Command::ReadConfig {})
+        .await
+        .unwrap();
+    session(&pool, &id, "live").await;
+    let stored = ops.store.get(&queued.operation_id).await.unwrap().unwrap();
+    let now = db::now_micros().unwrap();
+    ops.store
+        .claim_next(&stored.operation.namespace, "live", now, now + 1_000)
+        .await
+        .unwrap()
+        .unwrap();
+    tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+    let next = ops
+        .enqueue("admin", &id, "after-expiry", Command::ReadConfig {})
+        .await
+        .unwrap();
+    let (stop, rx) = tokio::sync::watch::channel(false);
+    let worker = tokio::spawn(ops.clone().run_until(rx));
+    tokio::time::timeout(std::time::Duration::from_secs(3), async {
+        loop {
+            if ops
+                .get_for_actor("admin", &queued.operation_id)
+                .await
+                .unwrap()
+                .state
+                == OperationState::DeadLetter
+            {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
+    stop.send(true).unwrap();
+    worker.await.unwrap().unwrap();
+    let claimed = ops.next(&id, "live").await.unwrap().unwrap();
+    assert_eq!(claimed.operation.operation_id, next.operation_id);
+    // Exercise an already persisted unknown read, rather than inventing a migration.
+    ops.store
+        .abandon_claim(
+            &claimed.operation,
+            "manager_interrupted",
+            db::now_micros().unwrap(),
+        )
+        .await
+        .unwrap();
+    ops.recover_startup().await.unwrap();
+    assert_eq!(
+        ops.get_for_actor("admin", &next.operation_id)
+            .await
+            .unwrap()
+            .state,
+        OperationState::DeadLetter
+    );
+    assert!(ops.store.pending_audit_count().await.unwrap() > 0);
+}
+
+#[tokio::test]
+async fn client_unknown_read_fails_without_blocking_next_read() {
+    let (_dir, pool) = database().await;
+    let (id, _) = registered(&pool).await;
+    let ops = manager(&pool);
+    let first = ops
+        .enqueue("admin", &id, "unknown-read", Command::ReadConfig {})
+        .await
+        .unwrap();
+    session(&pool, &id, "s").await;
+    let claimed = ops.next(&id, "s").await.unwrap().unwrap();
+    ops.complete(
+        &claimed,
+        "s",
+        Report::Unknown {
+            reason: Uncertainty::PersistenceFailure,
+        },
+    )
+    .await
+    .unwrap();
+    let view = ops
+        .get_for_actor("admin", &first.operation_id)
+        .await
+        .unwrap();
+    assert_eq!(view.state, OperationState::Failed);
+    assert!(matches!(view.result, Some(Report::Unknown { .. })));
+    let next = ops
+        .enqueue("admin", &id, "read-again", Command::ReadConfig {})
+        .await
+        .unwrap();
+    assert_eq!(
+        ops.next(&id, "s")
+            .await
+            .unwrap()
+            .unwrap()
+            .operation
+            .operation_id,
+        next.operation_id
+    );
+}
+
+#[tokio::test]
+async fn interrupted_write_still_blocks_writes_but_allows_reads() {
+    let (_dir, pool) = database().await;
+    let (id, _) = registered(&pool).await;
+    let ops = manager(&pool);
+    let command = Command::Restart {
+        expected_revision: "a".repeat(64),
+        administrator_confirmed: true,
+    };
+    let first = ops
+        .enqueue("admin", &id, "write-before-restart", command.clone())
+        .await
+        .unwrap();
+    let second = ops
+        .enqueue("admin", &id, "write-after-restart", command)
+        .await
+        .unwrap();
+    let read = ops
+        .enqueue("admin", &id, "read-after-restart", Command::ReadConfig {})
+        .await
+        .unwrap();
+    session(&pool, &id, "before").await;
+    ops.next(&id, "before").await.unwrap().unwrap();
+    ops.recover_startup().await.unwrap();
+    session(&pool, &id, "after").await;
+    assert_eq!(
+        ops.get_for_actor("admin", &first.operation_id)
+            .await
+            .unwrap()
+            .state,
+        OperationState::Unknown
+    );
+    let claimed = ops.next(&id, "after").await.unwrap().unwrap();
+    assert_eq!(claimed.operation.operation_id, read.operation_id);
+    ops.complete(
+        &claimed,
+        "after",
+        Report::ConfigRead {
+            snapshot: recovery_snapshot("a"),
+        },
+    )
+    .await
+    .unwrap();
+    assert!(ops.next(&id, "after").await.unwrap().is_none());
+    assert_eq!(
+        ops.get_for_actor("admin", &second.operation_id)
+            .await
+            .unwrap()
+            .state,
+        OperationState::Pending
+    );
+}

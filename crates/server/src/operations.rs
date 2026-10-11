@@ -1016,6 +1016,34 @@ impl OperationManager {
         tx.commit().await?;
         self.view(updated).await
     }
+    // Reads have no uncertain side effects to reconcile. The shared recovery API
+    // first fences interrupted leases as unknown; close only the read lane with
+    // its explicit unable-to-confirm outcome, preserving reports and audit history.
+    async fn release_uncertain_reads(&self) -> AppResult<()> {
+        let pending: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM _common_operations WHERE namespace LIKE 'xscc.client.v1.%.read' AND state='unknown')")
+            .fetch_one(&self.pool).await?;
+        if !pending {
+            return Ok(());
+        }
+        let mut tx = self.pool.begin_with("BEGIN IMMEDIATE").await?;
+        let ids: Vec<String> = sqlx::query_scalar(
+            "SELECT operation_id FROM _common_operations WHERE namespace LIKE 'xscc.client.v1.%.read' AND state='unknown'",
+        )
+        .fetch_all(&mut *tx)
+        .await?;
+        for id in ids {
+            SqliteOperationStore::resolve_in(
+                &mut tx,
+                &id,
+                xcss::operations::Resolution::UnableToConfirm,
+                db::now_micros()?,
+            )
+            .await
+            .map_err(internal)?;
+        }
+        tx.commit().await?;
+        Ok(())
+    }
     pub async fn recover_startup(&self) -> AppResult<u64> {
         sqlx::query("UPDATE devices SET session_id=NULL,last_seen_at_micros=NULL,health_at_micros=NULL,sunshine_reachable=NULL").execute(&self.pool).await?;
         let spaces: Vec<String> =
@@ -1030,6 +1058,7 @@ impl OperationManager {
                 .await
                 .map_err(internal)?;
         }
+        self.release_uncertain_reads().await?;
         Ok(count)
     }
     pub async fn next(&self, device: &str, owner: &str) -> AppResult<Option<StoredOperation>> {
@@ -1213,6 +1242,11 @@ impl OperationManager {
                 | Report::MaintenanceCompleted { .. }
                 | Report::ServiceStatusRead { .. }
                 | Report::ServiceControlled { .. } => Transition::Succeed,
+                Report::Unknown { .. } if resource(&task.command) == "read" => Transition::Fail {
+                    code: "read_interrupted".into(),
+                    retryable: false,
+                    retry_not_before_micros: db::now_micros()?,
+                },
                 Report::Unknown { .. } => Transition::MarkIndeterminate {
                     code: "client_uncertain".into(),
                 },
@@ -1295,6 +1329,9 @@ impl OperationManager {
                     .await
                     .map_err(|_| "operation recovery unavailable".to_owned())?;
             }
+            self.release_uncertain_reads()
+                .await
+                .map_err(|_| "read operation recovery unavailable".to_owned())?;
             tokio::select! {_ = xcss::server_runtime::wait_for_shutdown(&mut shutdown)=>break,_=tokio::time::sleep(Duration::from_secs(1))=>{}}
         }
         Ok(())
