@@ -1,6 +1,7 @@
 import { checkAccountPage } from "./account-page.mjs";
 import { checkWebLanguage } from "./language.mjs";
 import { checkHeaderActions, checkHeaderLogout } from "./header-actions.mjs";
+import { paintedSurfaceColor } from "./painted-surface.mjs";
 import assert from "node:assert/strict";
 import {chromium,firefox,expect} from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
@@ -235,9 +236,9 @@ try {
    for(const theme of ["dark","light"]){
     await page.getByRole("button",{name:theme==="dark"?"切换到深色模式":"切换到浅色模式",exact:true}).click();
     await expect(page.locator("html")).toHaveAttribute("data-theme",theme);
-    const colors=await page.evaluate(()=>({page:getComputedStyle(document.documentElement).backgroundColor,card:getComputedStyle(document.querySelector(".sunshine-config-panel")).backgroundColor,cardText:getComputedStyle(document.querySelector(".sunshine-config-panel")).color,actionText:getComputedStyle(document.querySelector('.sunshine-config-navigation button:not([aria-pressed="true"])')).color}));
-    if(theme==="light")assert.deepEqual(colors,{page:"rgb(255, 255, 255)",card:"rgb(242, 242, 242)",cardText:"rgb(31, 31, 31)",actionText:"rgb(68, 68, 68)"});
-    else assert.notEqual(colors.card,"rgb(242, 242, 242)");
+    const readColors=async()=>({...await page.evaluate(()=>({page:getComputedStyle(document.documentElement).backgroundColor,cardText:getComputedStyle(document.querySelector(".sunshine-config-panel")).color,actionText:getComputedStyle(document.querySelector('.sunshine-config-navigation button:not([aria-pressed="true"])')).color})),card:await paintedSurfaceColor(page.locator(".sunshine-config-panel"))});
+    if(theme==="light")await expect.poll(readColors).toEqual({page:"rgb(255, 255, 255)",card:"rgb(242, 242, 242)",cardText:"rgb(31, 31, 31)",actionText:"rgb(68, 68, 68)"});
+    else await expect.poll(async()=>(await readColors()).card).not.toBe("rgb(242, 242, 242)");
     const violations=(await new AxeBuilder({page}).withTags(["wcag2a","wcag2aa","wcag21aa"]).analyze()).violations;
     assert.deepEqual(violations,[]);
    }
