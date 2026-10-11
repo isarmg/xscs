@@ -2955,8 +2955,8 @@ checksum = "3ad82d2a33cdc9674dc7465672f271e096168fcdbe0f799d9e6db8c5892679dc"
 
 [[package]]
 name = "xcss"
-version = "1.0.3"
-source = "git+https://github.com/isarmg/xcss.git?rev=736cfb22a4842226df19295e1876839df6bb7a7d#736cfb22a4842226df19295e1876839df6bb7a7d"
+version = "1.0.4"
+source = "git+https://github.com/isarmg/xcss.git?rev=0fb8d744c75e829dff48eadc5e50137f5ad589fd#0fb8d744c75e829dff48eadc5e50137f5ad589fd"
 dependencies = [
  "aes-gcm",
  "anyhow",
