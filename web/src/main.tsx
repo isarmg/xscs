@@ -1,4 +1,5 @@
 import { startAfterFonts } from "@xcss/web/web-fonts";
+import { startServerCorners } from "@xcss/web/admin-ui/server-corners";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 
@@ -13,6 +14,7 @@ import "./sunshine.css";
 import App from "./App";
 
 void startAfterFonts(() => {
+  startServerCorners(document);
   createRoot(document.getElementById("root")!).render(
     <StrictMode>
       <App />

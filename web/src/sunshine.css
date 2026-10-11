@@ -110,3 +110,13 @@
   .sunshine-instance-settings .xcss-form-field { gap: .75rem; }
   .sunshine-instance-settings form { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* Explicit Mac mini surfaces; the authored round radii remain the fallback before startup. */
+.sunshine-management-panel :is(.xcss-input, textarea, .sunshine-file-input) { --xcss-server-corner-extent: var(--xcss-server-corner-control, 27px); }
+.sunshine-management-panel :is(.sunshine-run-options, .sunshine-preparation) { --xcss-server-corner-extent: var(--xcss-server-corner-panel, 42px); }
+.sunshine-management-panel .xcss-button.sunshine-primary-action { --xcss-server-corner-extent: var(--xcss-server-corner-control, 27px); }
+.sunshine-config-field > .xcss-input, .sunshine-config-select-trigger { --xcss-server-corner-extent: var(--xcss-server-corner-control, 27px); }
+.sunshine-config-select-options { --xcss-server-corner-extent: var(--xcss-server-corner-panel, 42px); }
+.sunshine-config-select-options > li { --xcss-server-corner-extent: var(--xcss-server-corner-control, 27px); }
+.sunshine-workspace textarea { --xcss-server-corner-extent: var(--xcss-server-corner-control, 27px); }
+.xscc-status { --xcss-server-corner-extent: 0px; }
