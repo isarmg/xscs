@@ -1,6 +1,6 @@
 # 通信与执行恢复
 
-当前实现采用通信 `xscs-management/1` / `xscs-management.v1`，协议包 `1.0.0`，Server `1.0.1`。
+当前实现采用通信 `xscs-management/1` / `xscs-management.v1`，协议包 `1.0.0`，Server `1.0.2`。
 设备端入口统一 `/xscc/v1/`；管理员 API 仍为 `/api/v1/`。Schema revision 仍为 1。
 完整配置覆盖与待配对请求查询分别要求显式 `configuration_overwrite` 和 `pending_pairing_listing` 能力，并保留业务授权与输入校验。Client 发布版本不决定功能支持，只供诊断。
 设备端只接受当前通信合同。业务 Task 合同固定为 `TASK_PROTOCOL = xscs-task/1`，指纹包含协议名称、实例绑定、权限和命令。同一任务合同内更新通信能力时，任务指纹保持稳定。

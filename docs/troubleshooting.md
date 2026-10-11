@@ -5,7 +5,7 @@
 | 现象 | 检查 | 预期与下一步 |
 |---|---|---|
 | 服务立即退出 | `sudo journalctl -u xscs.service -n 100 --no-pager` | 按首个错误核对发行目录、环境文件、权限与初始化结果 |
-| `release root must be releases/1.0.1` | 查看发行实体路径和 current 链接 | 使用 `/opt/isarmg/xscs/releases/1.0.1` 及同安装树的绝对 current 链接 |
+| `release root must be releases/1.0.2` | 查看发行实体路径和 current 链接 | 使用 `/opt/isarmg/xscs/releases/1.0.2` 及同安装树的绝对 current 链接 |
 | `/healthz` 正常，`/readyz` 返回 503 | 查看运行日志；执行只读 `config validate --json` | 运行依赖全部健康后 ready 才为 true；需要 doctor 时先停服 |
 | 后端就绪，浏览器打不开 | 从入口主机检查配置的后端地址 | 公网使用有效 HTTPS；同机入口可回源回环端口，跨服务器使用配置的内网地址与端口 |
 | 登录失败或 403 | 核对用户名、主机时钟、Host/Origin 和 Cookie | 使用同一 HTTPS 源站；用户名规则见配置参考 |

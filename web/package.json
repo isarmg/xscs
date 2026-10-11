@@ -1,7 +1,7 @@
 {
   "name": "xscs-web",
   "private": true,
-  "version": "1.0.1",
+  "version": "1.0.2",
   "type": "module",
   "engines": {
     "node": ">=26.7.0 <27"
@@ -15,7 +15,7 @@
     "test:browser": "npm run test:unit && npm run build && node tests/browser-acceptance.mjs && node tests/remote-controls.mjs && node tests/config-snapshot.mjs && node tests/moonlight-pairing.mjs"
   },
   "dependencies": {
-    "@xcss/web": "https://github.com/isarmg/xcss/releases/download/v1.0.4/xcss-web-1.0.4.tgz",
+    "@xcss/web": "https://github.com/isarmg/xcss/releases/download/v1.0.5/xcss-web-1.0.5.tgz",
     "react": "19.3.0",
     "react-dom": "19.3.0"
   },
