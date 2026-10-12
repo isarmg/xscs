@@ -102,7 +102,7 @@ try {
               operation_id: "op_" + randomUUID(), device_id: device.id,
               action: { read_config: "sunshine.config.read", save_config: "sunshine.config.save", restart: "sunshine.restart" }[command.kind],
               state: "pending", attempt: 1,
-              created_at_micros: now, created_at_server: "2030-01-02 12:00:00.000000 +00:00",
+              created_at_micros: now, created_at_server: "2030-01-02 12:00:00.000000 UTC",
               updated_at_micros: now, result: null, reconciliation: null, resolution: null,
             };
             operationCommands.set(operation.operation_id, command);

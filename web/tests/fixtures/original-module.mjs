@@ -20,6 +20,7 @@ export async function originalModule(entry, replacements = {}, exports = []) {
       if (Object.hasOwn(replacements, specifier)) {
         return { url: `data:text/javascript,${encodeURIComponent(replacements[specifier])}`, shortCircuit: true };
       }
+      if (specifier === './input-validation') return { url: new URL('../../src/input-validation.ts',import.meta.url).href, shortCircuit: true };
       return next(specifier, context);
     },
     load(url, context, next) {

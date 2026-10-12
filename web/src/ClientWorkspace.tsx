@@ -7,6 +7,7 @@ import {CURRENT_API_PREFIX,isClientAuthorization,isDevice,isOperation,isOperatio
 import {configCategories,fieldsForDevice,prerequisiteLabel,type ConfigCategory} from "./config-fields";
 import {SunshineControls,isSunshineManagementCategory,sunshineManagementCategories,type SunshineManagementCategory} from "./SunshineControls";
 import {ConfigSelect} from "./ConfigSelect";
+import {configurationFieldError} from "./input-validation";
 import {configurationFeedback,isConfigurationCommand,type ConfigurationActivity} from "./configuration-feedback";
 import { DateRangeField, type CalendarDateRange } from "@xcss/web/admin-ui/date-range";
 import "@xcss/web/admin-ui/date-range.css";
@@ -130,6 +131,10 @@ export function ClientWorkspace({device,fieldDefinitions,refreshSignal,configRef
  function selectConfigCategory(category:ConfigCategory){setConfigCategory(category)}
  function saveCommand():Extract<Command,{kind:"save_config"}>|null{
   if(!baseline||fieldDefinitions===null||configLoading||!supportsConfigurationOverwrite(device.capabilities))return null;
+  for(const field of configFields){
+   const issue=configurationFieldError(field,remove.includes(field.key)?"":draft[field.key]??"");
+   if(issue){selectConfigCategory(field.category);requestAnimationFrame(()=>document.getElementById(`sunshine-field-${field.key}`)?.focus());return null;}
+  }
   const invalid=configForm.current?.querySelector<HTMLInputElement|HTMLSelectElement>("input:invalid, select:invalid");
   if(invalid){const category=invalid.closest<HTMLElement>("[data-config-category]")?.dataset.configCategory as ConfigCategory|undefined;if(category)selectConfigCategory(category);requestAnimationFrame(()=>invalid.reportValidity());return null}
   const set:Record<string,string|number|boolean>={};const deleted:string[]=[];
@@ -177,10 +182,14 @@ export function ClientWorkspace({device,fieldDefinitions,refreshSignal,configRef
  {!configFields.some(field=>field.category===category.id)&&<p>{t("当前设备没有可远程修改的此类配置。", "This device has no remotely editable settings in this category.")}</p>}
  {configFields.filter(field=>field.category===category.id).map(field=>{
  const inputId=`sunshine-field-${field.key}`;
+ const fieldError=configurationFieldError(field,remove.includes(field.key)?"":draft[field.key]??"");
+ const errorId=`${inputId}-error`;
  const helpId=field.prerequisite?`${inputId}-help`:undefined;
+ const describedBy=[helpId,fieldError?errorId:undefined].filter(Boolean).join(" ")||undefined;
  return <div key={field.key} className="sunshine-config-field">
  <div className="sunshine-config-label"><label id={`${inputId}-label`} htmlFor={inputId}>{field.label}</label>{field.prerequisite&&<small id={helpId}>{prerequisiteLabel(field.prerequisite)}</small>}</div>
- {field.inputKind==="select"?<ConfigSelect id={inputId} describedBy={helpId} value={draft[field.key]??""} disabled={busy||remove.includes(field.key)} options={[{value:"",label:t("未显式设置", "Not explicitly set")},...field.options.map(value=>({value,label:configValueLabel(value)}))]} onChange={value=>setDraft(values=>({...values,[field.key]:value}))}/>:<TextField id={inputId} aria-describedby={helpId} type={field.inputKind==="integer"?"number":"text"} min={field.minimum} max={field.maximum} step={1} maxLength={field.maximum_length} pattern={field.inputKind==="text"?".{1,32}":undefined} value={draft[field.key]??""} disabled={busy||remove.includes(field.key)} onChange={event=>{const value=event.target.value;setDraft(values=>({...values,[field.key]:value}))}}/>}
+ {field.inputKind==="select"?<ConfigSelect id={inputId} describedBy={describedBy} value={draft[field.key]??""} disabled={busy||remove.includes(field.key)} options={[{value:"",label:t("未显式设置", "Not explicitly set")},...field.options.map(value=>({value,label:configValueLabel(value)}))]} onChange={value=>setDraft(values=>({...values,[field.key]:value}))}/>:<TextField id={inputId} aria-describedby={describedBy} aria-invalid={!!fieldError||undefined} type={field.inputKind==="integer"?"number":"text"} min={field.minimum} max={field.maximum} step={1} value={draft[field.key]??""} disabled={busy||remove.includes(field.key)} onChange={event=>{const value=event.target.value;setDraft(values=>({...values,[field.key]:value}))}}/>}
+ {fieldError&&<p id={errorId} role="alert">{fieldError}</p>}
  <label className="sunshine-config-reset" title={t("恢复默认（删除显式设置）", "Restore default (remove explicit setting)")}><input type="checkbox" aria-label={`${field.label}：${t("恢复默认（删除显式设置）", "Restore default (remove explicit setting)")}`} checked={remove.includes(field.key)} disabled={busy||!(field.key in baseline.fields)} onChange={event=>{const checked=event.target.checked;setRemove(values=>checked?[...values,field.key]:values.filter(key=>key!==field.key))}}/>{t("恢复默认", "Restore default")}</label>
  </div>})}
  </section>)}
@@ -200,16 +209,16 @@ export function ClientWorkspace({device,fieldDefinitions,refreshSignal,configRef
   <div className="xcss-content-panel xcss-content-stack">
    <p>{t("实例：{0}", "Instance: {0}", [device.name])}</p>
    <div className="xcss-log-date-controls">
-    <label htmlFor="sunshine-log-date-start-year">{t("日志日期范围（服务器时区）", "Log date range (server time zone)")}</label>
+    <label htmlFor="sunshine-log-date-start-year">{t("日志日期范围（UTC）", "Log date range (UTC)")}</label>
     <div className="xcss-actions"><Button disabled={calendarLoading||logLoading||(logRange!==null&&!logDraftValid)} onClick={()=>{setLogCursor(null);if(logRange===null)setCalendarRefresh(value=>value+1);else setLogRefresh(value=>value+1)}}>{t("刷新日志", "Refresh logs")}</Button></div>
     <DateRangeField id="sunshine-log-date" value={logRange} disabled={calendarLoading} onValidityChange={setLogDraftValid} onApply={range=>{calendarReady.current=true;setTaskFailure(null);setLogCursor(null);setLogNext(null);setLogPrevious(null);setLogRange(range);setLogRefresh(value=>value+1)}}/>
    </div>
   </div>
   {taskFailure&&<ErrorState requestId={taskFailure.requestId} onRetry={()=>logRange===null?setCalendarRefresh(value=>value+1):setLogRefresh(value=>value+1)}>{taskFailure.message}</ErrorState>}
-  {calendarLoading&&<LoadingState>{t("正在读取服务器当天日期…", "Loading the server's current date…")}</LoadingState>}
+  {calendarLoading&&<LoadingState>{t("正在读取 UTC 当天日期…", "Loading the current UTC date…")}</LoadingState>}
   {logLoading&&<LoadingState>{t("正在读取所选日期的日志页…", "Loading a log page for the selected date…")}</LoadingState>}
   {!logLoading&&logDateValid&&!taskFailure&&loadedLogRange===logRange&&(visibleLogOperations.length===0?<EmptyState>{t("暂无日志", "No logs yet")}</EmptyState>:<Table aria-label={t("操作日志", "Operation logs")}>
-   <thead><tr><th>{t("服务器时间", "Server time")}</th><th>{t("操作", "Action")}</th><th>{t("状态", "Status")}</th><th>{t("详情", "Details")}</th></tr></thead>
+   <thead><tr><th>{t("时间（UTC）", "Time (UTC)")}</th><th>{t("操作", "Action")}</th><th>{t("状态", "Status")}</th><th>{t("详情", "Details")}</th></tr></thead>
    <tbody>{visibleLogOperations.map(operation=><tr key={operation.operation_id}>
     <td><time>{operation.created_at_server}</time></td><td>{operationLabel(operation.action)}</td><td>{tasks[operation.state]}</td>
     <td><article className="xcss-content-stack"><code>{operation.operation_id}</code>

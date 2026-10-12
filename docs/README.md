@@ -1,5 +1,7 @@
 # xscs 使用文档
 
+所有日期、时间输入、显示与日志日界统一使用 UTC，页面明确标注 UTC；一天固定为 24 小时，不随服务器或浏览器时区、夏令时改变。无时区的 SQLite 时间及日期输入也按 UTC 解释。
+
 xscs 为管理员提供自托管 Web 管理台，服务端运行于 Linux AMD64 GNU。每台受管主机安装 [xscc](https://github.com/isarmg/xscc/blob/main/docs/README.md)。本文档对应当前 1.0.2。
 
 ## 第一次使用

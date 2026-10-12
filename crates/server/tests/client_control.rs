@@ -1,4 +1,4 @@
-use chrono::{DateTime, Local, NaiveDate, Utc};
+use chrono::{DateTime, NaiveDate, Utc};
 use uuid::Uuid;
 use xscs::{
     AppError,
@@ -326,7 +326,8 @@ async fn complete_history_includes_old_uncertain_work_and_global_blocking_count(
     assert!(
         dated
             .iter()
-            .all(|item| item.created_at_server.starts_with("2027-01-15 "))
+            .all(|item| item.created_at_server.starts_with("2027-01-15 ")
+                && item.created_at_server.ends_with(" UTC"))
     );
     assert!(
         !dated
@@ -372,29 +373,18 @@ async fn complete_history_includes_old_uncertain_work_and_global_blocking_count(
 }
 
 #[test]
-fn server_calendar_uses_local_day_boundaries() {
-    for date in ["2027-01-15", "2027-03-14", "2027-11-07"] {
+fn server_calendar_uses_fixed_utc_day_boundaries() {
+    for date in ["2027-01-15", "2028-02-29", "2027-12-31"] {
         let day = NaiveDate::parse_from_str(date, "%Y-%m-%d").unwrap();
         let (from, to) = server_date_bounds(date).unwrap();
-        assert!(from < to);
-        let at_start = DateTime::<Utc>::from_timestamp_micros(from)
-            .unwrap()
-            .with_timezone(&Local);
-        let before_end = DateTime::<Utc>::from_timestamp_micros(to - 1)
-            .unwrap()
-            .with_timezone(&Local);
-        let at_end = DateTime::<Utc>::from_timestamp_micros(to)
-            .unwrap()
-            .with_timezone(&Local);
+        assert_eq!(to - from, 86_400 * 1_000_000);
+        let at_start = DateTime::<Utc>::from_timestamp_micros(from).unwrap();
+        let before_end = DateTime::<Utc>::from_timestamp_micros(to - 1).unwrap();
+        let at_end = DateTime::<Utc>::from_timestamp_micros(to).unwrap();
         assert_eq!(at_start.date_naive(), day);
         assert_eq!(before_end.date_naive(), day);
         assert_eq!(at_end.date_naive(), day.succ_opt().unwrap());
-    }
-    if std::env::var("TZ").as_deref() == Ok("America/New_York") {
-        let (spring_start, spring_end) = server_date_bounds("2027-03-14").unwrap();
-        let (fall_start, fall_end) = server_date_bounds("2027-11-07").unwrap();
-        assert_eq!(spring_end - spring_start, 23 * 60 * 60 * 1_000_000);
-        assert_eq!(fall_end - fall_start, 25 * 60 * 60 * 1_000_000);
+        assert_eq!(at_start.time().to_string(), "00:00:00");
     }
 }
 async fn registered(pool: &sqlx::SqlitePool) -> (String, String) {

@@ -14,7 +14,7 @@ const {ClientWorkspace}=await originalModule(new URL('../src/ClientWorkspace.tsx
  './ConfigSelect':'export const ConfigSelect="select";',
  './SunshineControls':'export const SunshineControls="sunshine-controls",sunshineManagementCategories=[];export function isSunshineManagementCategory(){return false}',
  './configuration-feedback':'export function isConfigurationCommand(command){return ["read_config","save_config","restart"].includes(command.kind)};export function configurationFeedback(){return {message:"fixture",error:false}}',
- './config-fields':'export const configCategories=[{id:"general",label:"General"}];export function fieldsForDevice(fields){return fields.map(field=>({...field,category:"general",label:field.key,inputKind:"integer",boolean:false,options:[]}))};export function prerequisiteLabel(){return undefined}',
+ './config-fields':'export const configCategories=[{id:"general",label:"General"}];export function fieldsForDevice(fields){return fields.map(field=>({...field,category:"general",label:field.key,inputKind:field.kind,boolean:false,options:field.options??[]}))};export function prerequisiteLabel(){return undefined}',
  './api':'export const {CURRENT_API_PREFIX,isClientAuthorization,isDevice,isOperation,isOperations,isOperationPage,isOperationSummary,isTaskCalendar,isSnapshot,supportsConfigurationOverwrite,currentErrorEnvelope}=globalThis.__workspaceApi;'
 });
 const snapshot=(revision,qp)=>({revision:revision.repeat(64),sunshine_version:'2026.914.233613',fields:{qp},effectiveness:'awaiting_restart'});
@@ -97,4 +97,13 @@ for(const [label,resolution,report] of [
  f.button('Restart Sunshine').props.onClick();await f.confirm().props.onConfirm();await f.settle();
  assert.equal(f.commands.at(-1).expected_revision,'a'.repeat(64));
  assert.equal(walk(f.host.render(),node=>node.type==='input'&&node.props.id==='sunshine-field-qp')[0].props.value,'29');
+});
+
+for(const value of ['A#B','A=B','A[B]',' Name','Name\u0085','😀'.repeat(33)])test(`invalid configuration text stays visible and cannot send SaveConfig (${JSON.stringify(value)})`,async()=>{
+ const f=fixture();f.host.props.fieldDefinitions=[{key:'sunshine_name',kind:'text',maximum_length:32}];f.host.render();await f.settle();await f.refresh();f.button('General').props.onClick();
+ const field=()=>walk(f.host.render(),node=>node.type==='input'&&node.props.id==='sunshine-field-sunshine_name')[0];field().props.onChange({target:{value}});f.host.render();assert.equal(field().props.value,value);assert.equal(field().props.maxLength,undefined);assert.equal(field().props.pattern,undefined);assert.equal(field().props['aria-invalid'],true);assert.ok(walk(f.host.tree,node=>node.props?.role==='alert').length);
+ const before=f.commands.length;globalThis.requestAnimationFrame=()=>{};f.button('Apply changes').props.onClick();await f.settle();assert.equal(f.commands.length,before);assert.equal(field().props.value,value);delete globalThis.requestAnimationFrame;
+});
+test('configuration text counts Unicode scalar characters and sends 32 astral characters unchanged',async()=>{
+ const f=fixture();f.host.props.fieldDefinitions=[{key:'sunshine_name',kind:'text',maximum_length:32}];f.host.render();await f.settle();await f.refresh();f.button('General').props.onClick();const value='😀'.repeat(32);walk(f.host.render(),node=>node.type==='input'&&node.props.id==='sunshine-field-sunshine_name')[0].props.onChange({target:{value}});f.host.render();f.button('Apply changes').props.onClick();await f.settle();assert.equal(f.commands.at(-1).set.sunshine_name,value);
 });

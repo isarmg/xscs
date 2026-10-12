@@ -37,7 +37,7 @@ try {for(const engine of engines){
      else if(command.pin==="5678"){state="failed";result={kind:"rejected",reason:"pairing_failed"}}
      else {state="unknown";result={kind:"unknown",reason:"side_effect_not_confirmed"}}
     } else {assert.equal(command.kind,"read_config");action="sunshine.config.read";result={kind:"config_read",snapshot}}
-    const created=++clock;const operation={operation_id:"op_"+randomUUID(),device_id:device.id,action,state,attempt:1,created_at_micros:created,created_at_server:new Date(Math.floor(created/1000)).toISOString().slice(0,19).replace("T"," ")+".000000 +00:00",updated_at_micros:created,result,reconciliation:null,resolution:null};operations.unshift(operation);return route.fulfill({json:operation});
+    const created=++clock;const operation={operation_id:"op_"+randomUUID(),device_id:device.id,action,state,attempt:1,created_at_micros:created,created_at_server:new Date(Math.floor(created/1000)).toISOString().slice(0,19).replace("T"," ")+".000000 UTC",updated_at_micros:created,result,reconciliation:null,resolution:null};operations.unshift(operation);return route.fulfill({json:operation});
    }
    if(path.endsWith("/tasks"))return route.fulfill({json:new URL(req.url()).searchParams.has("date")?{operations:operations.slice(0,50),next_cursor:null,previous_cursor:null}:operations.slice(0,50)});
    return route.fulfill({json:session});

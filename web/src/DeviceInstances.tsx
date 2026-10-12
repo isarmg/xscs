@@ -14,7 +14,7 @@ const configurationStates: Record<string, string> = {
 function lastSeen(micros: number | null) {
   if (micros === null) return t("尚未连接", "Never connected");
   const date = new Date(micros / 1000);
-  return Number.isFinite(date.getTime()) ? date.toLocaleString(getLocale()) : t("未知", "Unknown");
+  return Number.isFinite(date.getTime()) ? date.toLocaleString(getLocale(), { timeZone: "UTC", timeZoneName: "short" }) : t("未知", "Unknown");
 }
 export function DeviceInstances({ devices, select, removed }: { devices: DeviceInfo[]; select(id: string): void; removed(id: string): void }) {
   const { client, notify } = useAdminApplication();

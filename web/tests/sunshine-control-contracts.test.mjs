@@ -3,18 +3,18 @@ import {test} from 'node:test';
 import {readFile} from 'node:fs/promises';
 import {originalModule} from './fixtures/original-module.mjs';
 import {HookHost,walk,textContent} from './fixtures/hook-host.mjs';
-const {SunshineControls}=await originalModule(new URL('../src/SunshineControls.tsx',import.meta.url),{
+const {SunshineControls,ApplicationEditor}=await originalModule(new URL('../src/SunshineControls.tsx',import.meta.url),{
  '@xcss/web/admin-ui':'export const Button="button",FormField="field",TextField="input";',
  '@xcss/web/admin-ui/i18n':'export function t(zh,en){return en}',
  './ConfigSelect':'export const ConfigSelect="select"',
  './api':'export function supportsPendingPairingListing(){return true}'
-});
+},['ApplicationEditor']);
 const spec={name:'Original',output:'',cmd:'','working-dir':'','exclude-global-prep-cmd':false,elevated:false,'auto-detach':false,'wait-all':false,'exit-timeout':5,'prep-cmd':[],detached:[],'image-path':''};
 const ref=value=>({fingerprint:value.repeat(64)});
 function fixture(){
  const initial={operation_id:'read-1',state:'succeeded',updated_at_micros:1,result:{kind:'applications_read',snapshot:{revision:'a'.repeat(64),applications:[{reference:ref('b'),specification:spec}]}},reconciliation:null};
  const commands=[];let confirmation,delayAcceptance=false,releaseAcceptance;
- const props={device:{id:'fixture',capabilities:{protocol:'xscs-management/1',application_management:true,service_control:true}},operations:[initial],busy:false,blocked:false,section:'applications',
+ const props={device:{id:'fixture',capabilities:{protocol:'xscs-management/1',application_management:true,application_host_commands_allowed:true,service_control:true}},operations:[initial],busy:false,blocked:false,section:'applications',
   submit:async(command,onAccepted)=>{commands.push(command);const operation={operation_id:'save-'+commands.length,state:'pending',updated_at_micros:10+commands.length,result:null,reconciliation:null};if(delayAcceptance)await new Promise(resolve=>{releaseAcceptance=resolve});onAccepted?.(operation);return true},
   confirm:value=>{confirmation=value}
  };
@@ -131,4 +131,20 @@ test('reconciled creation becomes an edit instead of repeating creation',async()
  assert.equal(f.commands[0].application['auto-detach'],true);assert.equal(f.commands[0].application['wait-all'],true);
  f.update([{operation_id:'save-1',state:'resolved',updated_at_micros:120,result:{kind:'unknown'},reconciliation:{kind:'application_saved',snapshot:{revision:'c'.repeat(64),applications:[{reference:ref('d'),specification:structuredClone(f.commands[0].application)}]}},reconciliation_observed_at_micros:110,resolution:'confirmed_succeeded'}]);
  assert.equal(f.editor().props.editing,true);await f.save();assert.deepEqual(f.commands[1].target,ref('d'));
+});
+
+for(const [field,value] of [['name','界'.repeat(43)],['name',' Name'],['cmd',' launch'],['image-path','x'.repeat(4097)],['exit-timeout',1.5]])test(`application ${field} invalid protocol input is visible and cannot submit a task`,async()=>{
+ const f=fixture();f.button('Edit').props.onClick();f.editor().props.setApplication({...spec,[field]:value});await f.save();assert.equal(f.commands.length,0);assert.equal(f.confirmation(),undefined);assert.equal(f.editor().props.application[field],value);
+ const editorHost=new HookHost(ApplicationEditor,f.editor().props);editorHost.render();assert.ok(walk(editorHost.tree,node=>node.props?.role==='alert').length>0);assert.equal(walk(editorHost.tree,node=>node.type==='input'&&String(node.props.value)===String(value))[0].props.maxLength,undefined);editorHost.unmount();
+});
+test('detached command whitespace is rejected without being trimmed; valid command contents are sent unchanged',async()=>{
+ const f=fixture();f.button('Edit').props.onClick();f.editor().props.setDetachedText(' echo original \n');await f.save();assert.equal(f.commands.length,0);assert.equal(f.confirmation(),undefined);assert.equal(f.editor().props.detachedText,' echo original \n');
+ f.editor().props.setDetachedText('echo  \"internal spaces\"\n\necho 第二条\n');await f.save();assert.ok(f.confirmation());await f.confirmation().run();assert.deepEqual(f.commands[0].application.detached,['echo  \"internal spaces\"','echo 第二条']);
+});
+test('large detached command groups are accepted beyond the old textarea limit but the full task envelope is bounded',async()=>{
+ const f=fixture();f.button('Edit').props.onClick();f.editor().props.setDetachedText(Array.from({length:3},(_,i)=>String(i)+'x'.repeat(4095)).join('\n'));await f.save();assert.ok(f.confirmation());await f.confirmation().run();assert.equal(f.commands[0].application.detached.length,3);
+ const g=fixture();g.button('Edit').props.onClick();g.editor().props.setDetachedText(Array.from({length:16},()=> 'x'.repeat(4096)).join('\n'));await g.save();assert.equal(g.commands.length,0);assert.equal(g.confirmation(),undefined);assert.match(g.editor().props.failure,/task size limit/);
+});
+test('unapproved host commands show a permission error and cannot reach confirmation',async()=>{
+ const f=fixture();f.host.props.device.capabilities.application_host_commands_allowed=false;f.button('Edit').props.onClick();f.editor().props.setApplication({...spec,cmd:'launch'});await f.save();assert.equal(f.commands.length,0);assert.equal(f.confirmation(),undefined);assert.match(f.editor().props.failure,/not allowed application host commands/);
 });

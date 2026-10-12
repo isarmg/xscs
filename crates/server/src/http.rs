@@ -21,7 +21,7 @@ use axum::{
     response::{IntoResponse, Response},
     routing::{get, patch, post},
 };
-use chrono::Local;
+use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, HashSet},
@@ -452,7 +452,7 @@ struct TaskCalendar {
 }
 async fn device_task_calendar() -> Json<TaskCalendar> {
     Json(TaskCalendar {
-        today: Local::now().format("%Y-%m-%d").to_string(),
+        today: Utc::now().format("%Y-%m-%d").to_string(),
     })
 }
 async fn device_task_summary(
@@ -1502,7 +1502,7 @@ mod tests {
         let refreshed_csrf = current_body["csrf_token"].as_str().unwrap().to_string();
         assert_eq!(refreshed_csrf, csrf);
 
-        let before_calendar = Local::now().format("%Y-%m-%d").to_string();
+        let before_calendar = Utc::now().format("%Y-%m-%d").to_string();
         let calendar = application
             .clone()
             .oneshot(
@@ -1518,7 +1518,7 @@ mod tests {
             serde_json::from_slice(&calendar.into_body().collect().await.unwrap().to_bytes())
                 .unwrap();
         let today = calendar["today"].as_str().unwrap();
-        let after_calendar = Local::now().format("%Y-%m-%d").to_string();
+        let after_calendar = Utc::now().format("%Y-%m-%d").to_string();
         assert!(today == before_calendar || today == after_calendar);
         for (query, expected) in [
             (format!("?date={today}"), StatusCode::OK),

@@ -21,8 +21,8 @@ const server=await preview({preview:{host:"127.0.0.1",port:0,strictPort:true}});
 try {for(const engine of process.argv.includes("--browser=firefox") ? [firefox] : [chromium,firefox]){
  const browser=await engine.launch();
  try {
-  const context=await browser.newContext({ locale: "zh-CN", timezoneId:"America/Los_Angeles", hasTouch:true });const page=await context.newPage();const commands=[];const configReads=[];const errors=[];const operations=[];const logDates=[];const serverToday="2030-01-02",serverYesterday="2030-01-01",serverStart=Date.parse("2030-01-02T00:00:00Z")*1000,serverEnd=Date.parse("2030-01-03T00:00:00Z")*1000;let operationClock=0;let emptyApplications=false,holdInitialSummary=true,releaseInitialSummary=null,holdNextCalendar=false,releaseCalendar=null,failCalendarOnce=false,largeLogPayloadOnce=false,failNextLog=false,externalBlocking=0,fullLogRequests=0,summaryResponses=0,failSummaryOnce=false,failedSummaryResponses=0;
-  const serverTimestamp=micros=>new Date(Math.floor(micros/1000)).toISOString().slice(0,19).replace("T"," ")+"."+String(micros%1_000_000).padStart(6,"0")+" +00:00";
+  const context=await browser.newContext({ locale: "zh-CN", hasTouch:true });const page=await context.newPage();const commands=[];const configReads=[];const errors=[];const operations=[];const logDates=[];const serverToday="2030-01-02",serverYesterday="2030-01-01",serverStart=Date.parse("2030-01-02T00:00:00Z")*1000,serverEnd=Date.parse("2030-01-03T00:00:00Z")*1000;let operationClock=0;let emptyApplications=false,holdInitialSummary=true,releaseInitialSummary=null,holdNextCalendar=false,releaseCalendar=null,failCalendarOnce=false,largeLogPayloadOnce=false,failNextLog=false,externalBlocking=0,fullLogRequests=0,summaryResponses=0,failSummaryOnce=false,failedSummaryResponses=0;
+  const serverTimestamp=micros=>new Date(Math.floor(micros/1000)).toISOString().slice(0,19).replace("T"," ")+"."+String(micros%1_000_000).padStart(6,"0")+" UTC";
   page.on("pageerror",e=>errors.push(e.message));
   const app={reference:{fingerprint:"c".repeat(64)},specification:{name:"Steam",output:"",cmd:"","working-dir":"","exclude-global-prep-cmd":false,elevated:false,"auto-detach":false,"wait-all":false,"exit-timeout":5,"prep-cmd":[],detached:[],"image-path":""}};
   const device={id:randomUUID(),name:"游戏主机",registered:true,pairing_pending:false,revoked:false,client_online:true,sunshine_reachable:true,configuration_state:"pending_verification",last_seen_at_micros:Date.now()*1000,capabilities:{protocol:"xscs-management/1",client_version:"0.3.1",os:"linux_x86_64",sunshine_version:"2026.914.233613",restart_allowed:true,managed_fields:configFields.map(field=>field.key),configuration_overwrite:true,application_management:true,application_host_commands_allowed:true,pending_pairing_listing:true,moonlight_pairing_management:true,diagnostics:true,maintenance:true,service_control:true},snapshot:{revision:"a".repeat(64),sunshine_version:"2026.914.233613",fields:{sunshine_name:"Original",qp:"28",nvenc_preset:"1",controller:"true",keyboard:"false"},effectiveness:"pending_verification"}};
@@ -142,6 +142,14 @@ try {for(const engine of process.argv.includes("--browser=firefox") ? [firefox] 
   await expect(page.getByLabel("量化参数 QP",{exact:true})).toBeHidden();
   await expect(categories.getByRole("button",{name:"NVIDIA NVENC 编码器",exact:true})).toBeVisible();
   await expect(categories.getByRole("button",{name:"Intel Quick Sync 编码器",exact:true})).toHaveCount(0);
+  const configName=page.getByLabel("Sunshine 名称",{exact:true});
+  assert.equal(await configName.getAttribute("maxlength"),null);
+  for(const value of ["Living#Room","Leading ","😀".repeat(33)]){
+   await configName.fill(value);await expect(configName).toHaveAttribute("aria-invalid","true");
+   await categories.getByRole("button",{name:"预览变更",exact:true}).click();await saveConfig.click();
+   await expect(configName).toBeFocused();await expect(configName).toHaveValue(value);assert.equal(commands.length,0);
+  }
+  await configName.fill("😀".repeat(32));await expect(configName).not.toHaveAttribute("aria-invalid","true");
   await page.getByLabel("Sunshine 名称", { exact: true }).fill("New name");
   for(const category of managementCategories){
    await categories.getByRole("button",{name:category.name,exact:true}).click();
@@ -249,6 +257,13 @@ try {for(const engine of process.argv.includes("--browser=firefox") ? [firefox] 
   await page.getByRole("button",{name:"刷新应用",exact:true}).click();
   await expect(page.locator("body")).toContainText("Steam");
   await page.getByRole("button",{name:"编辑",exact:true}).click();
+  const appName=page.getByLabel("名称",{exact:true});
+  assert.equal(await appName.getAttribute("maxlength"),null);
+  for(const value of ["界".repeat(43)," Leading"]){
+   const before=commands.length;await appName.fill(value);await page.getByRole("button",{name:"保存应用",exact:true}).click();await expect(appName).toHaveAttribute("aria-invalid","true");await expect(appName).toHaveValue(value);assert.equal(commands.length,before);
+  }
+  await appName.fill("Valid");const detachedInput=page.getByLabel("分离命令（每行一条）",{exact:true});
+  await detachedInput.fill(" echo original ");const beforeInvalidCommand=commands.length;await page.getByRole("button",{name:"保存应用",exact:true}).click();await expect(detachedInput).toHaveAttribute("aria-invalid","true");await expect(detachedInput).toHaveValue(" echo original ");await expect(page.getByRole("dialog")).toHaveCount(0);assert.equal(commands.length,beforeInvalidCommand);await detachedInput.fill("");
   await page.getByLabel("名称",{exact:true}).fill("Steam Remote");
   await page.getByRole("button",{name:"保存应用",exact:true}).click();
   await expect.poll(()=>commands.some(command=>command.kind==="save_application")).toBe(true);
@@ -323,7 +338,8 @@ try {for(const engine of process.argv.includes("--browser=firefox") ? [firefox] 
   await expect.poll(()=>commands.length).toBe(beforeCommands+1);
   assert.deepEqual(commands.at(-1).application.detached,["printf hello","printf world"]);
   await detached.fill(Array.from({length:17},(_,index)=>"command "+index).join("\n"));
-  await expect(page.getByRole("button",{name:"保存应用",exact:true})).toBeDisabled();
+  await expect(detached).toHaveAttribute("aria-invalid","true");
+  await expect(page.getByRole("button",{name:"保存应用",exact:true})).toBeEnabled();const beforeInvalidGroup=commands.length;await page.getByRole("button",{name:"保存应用",exact:true}).click();assert.equal(commands.length,beforeInvalidGroup);
   await expect(detached).toHaveValue(Array.from({length:17},(_,index)=>"command "+index).join("\n"));
 
   await page.getByLabel("封面键",{exact:true}).fill("test");
@@ -361,9 +377,8 @@ try {for(const engine of process.argv.includes("--browser=firefox") ? [firefox] 
   const logSection=page.locator(".sunshine-logs-panel");
   const logDate=rangeEditor(page, "sunshine-log-date");
   await logDate.expectValue(serverToday);
-  const browserToday=await page.evaluate(()=>{const now=new Date();return `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}-${String(now.getDate()).padStart(2,"0")}`});
+  const browserToday=await page.evaluate(()=>{const now=new Date();return now.toISOString().slice(0,10)});
   assert.notEqual(browserToday,serverToday,"the default date comes from the server, not the browser clock");
-  assert.equal(await page.evaluate(()=>Intl.DateTimeFormat().resolvedOptions().timeZone),"America/Los_Angeles");
   assert.equal(logDates.at(-1),serverToday);
   await expect(page.locator("body")).toContainText("Sunshine 进程已重启，运行时生效待验证");
   await expect(page.locator("body")).toContainText("fixture-process-generation");
@@ -380,8 +395,8 @@ try {for(const engine of process.argv.includes("--browser=firefox") ? [firefox] 
    const operation={operation_id:"op_"+randomUUID(),device_id:device.id,action:"sunshine.config.read",state:"succeeded",attempt:1,created_at_micros:created,created_at_server:serverTimestamp(created),updated_at_micros:created,result:null,reconciliation:null,resolution:null};
    operations.unshift(operation);if(index===174)lateToday=operation;
   }
-  const browserBoundaryDates=await page.evaluate(([early,late])=>[early,late].map(micros=>new Date(micros/1000).toLocaleDateString("en-CA")),[oldUnknown.created_at_micros,lateToday.created_at_micros]);
-  assert.notEqual(browserBoundaryDates[0],browserBoundaryDates[1],"one server date spans two browser dates");
+  const browserBoundaryDates=await page.evaluate(([early,late])=>[early,late].map(micros=>new Date(micros/1000).toISOString().slice(0,10)),[oldUnknown.created_at_micros,lateToday.created_at_micros]);
+  assert.deepEqual(browserBoundaryDates,[serverToday,serverToday],"both UTC boundaries belong to the selected UTC day");
   await expect(logSection.getByText(oldUnknown.operation_id,{exact:true})).toHaveCount(0);
   largeLogPayloadOnce=true;
   await logSection.getByRole("button",{name:"刷新日志",exact:true}).click();
@@ -412,7 +427,7 @@ try {for(const engine of process.argv.includes("--browser=firefox") ? [firefox] 
   await expect(oldArticle).toBeVisible();
   await navigateHistory(previousPage);await expect(logSection.locator("article")).toHaveCount(50);
   await navigateHistory(nextPage);await expect(oldArticle).toBeVisible();
-  await expect(oldArticle.locator("xpath=ancestor::tr")).toContainText("2030-01-02 00:00:00.000001 +00:00");
+  await expect(oldArticle.locator("xpath=ancestor::tr")).toContainText("2030-01-02 00:00:00.000001 UTC");
   await expect(logSection.locator("article").filter({hasText:lateToday.operation_id})).toHaveCount(0);
   await expect(logSection.getByText(yesterday.operation_id,{exact:true})).toHaveCount(0);
   await checkDateRangeValidation(logDate,()=>fullLogRequests,serverYesterday,serverToday);
@@ -450,7 +465,7 @@ try {for(const engine of process.argv.includes("--browser=firefox") ? [firefox] 
   await page.getByRole("button",{name:"日志",exact:true}).click();
   await expect.poll(()=>typeof releaseCalendar).toBe("function");
   await expect(logSection.locator("article")).toHaveCount(0);
-  await expect(logSection.getByText("正在读取服务器当天日期…",{exact:true})).toBeVisible();
+  await expect(logSection.getByText("正在读取 UTC 当天日期…",{exact:true})).toBeVisible();
   failNextLog=true;
   releaseCalendar();
   await expect(page.getByText("日志暂时不可用",{exact:true})).toBeVisible();

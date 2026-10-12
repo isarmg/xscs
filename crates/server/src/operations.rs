@@ -5,7 +5,7 @@ use crate::{
     error::{AppError, AppResult},
 };
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
-use chrono::{DateTime, Local, NaiveDate, TimeDelta, TimeZone, Utc};
+use chrono::{DateTime, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sqlx::{Connection, FromRow};
@@ -301,10 +301,7 @@ pub struct OperationSummary {
 fn server_timestamp(micros: i64) -> AppResult<String> {
     let utc = DateTime::<Utc>::from_timestamp_micros(micros)
         .ok_or_else(|| AppError::Internal(anyhow::anyhow!("invalid task creation timestamp")))?;
-    Ok(utc
-        .with_timezone(&Local)
-        .format("%Y-%m-%d %H:%M:%S%.6f %:z")
-        .to_string())
+    Ok(utc.format("%Y-%m-%d %H:%M:%S%.6f UTC").to_string())
 }
 
 pub fn server_date_bounds(date: &str) -> AppResult<(i64, i64)> {
@@ -329,19 +326,7 @@ pub fn server_date_bounds(date: &str) -> AppResult<(i64, i64)> {
         let midnight = day
             .and_hms_opt(0, 0, 0)
             .ok_or_else(|| AppError::BadRequest("无效的服务器日期".into()))?;
-        // Some time zones advance at midnight. Find the first valid local time,
-        // including the following midnight when a whole calendar day is skipped.
-        for second in 0..=86_400 {
-            let local_time = midnight + TimeDelta::seconds(second);
-            match Local.from_local_datetime(&local_time) {
-                chrono::LocalResult::Single(value) => return Ok(value.timestamp_micros()),
-                chrono::LocalResult::Ambiguous(first, second) => {
-                    return Ok(first.timestamp_micros().min(second.timestamp_micros()));
-                }
-                chrono::LocalResult::None => {}
-            }
-        }
-        Err(AppError::BadRequest("无法解析服务器日期".into()))
+        Ok(midnight.and_utc().timestamp_micros())
     }
     Ok((start(day)?, start(next)?))
 }
