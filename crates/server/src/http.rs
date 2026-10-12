@@ -671,6 +671,14 @@ async fn send(socket: &mut WebSocket, message: ManagerMessage) -> AppResult<()> 
     .map_err(|_| AppError::Unauthorized)?
     .map_err(|_| AppError::Unauthorized)
 }
+fn result_completes_pending(
+    pending_operation: Option<&str>,
+    awaiting_inspection_start: bool,
+    result_operation: &str,
+) -> bool {
+    !awaiting_inspection_start && pending_operation == Some(result_operation)
+}
+
 async fn serve_client(
     state: &WorkerState,
     mut socket: WebSocket,
@@ -729,6 +737,9 @@ async fn serve_client(
     let mut last_seen = Instant::now();
     let mut dispatched = Instant::now();
     let mut inspected = HashSet::new();
+    // Hello-adopted work is already active. A newly dispatched inspection must
+    // first cross its Progress boundary on the ordered Client socket.
+    let mut awaiting_inspection_start = false;
     loop {
         tokio::select! {
             message=socket.recv()=>{
@@ -753,6 +764,7 @@ async fn serve_client(
                                 if state.operations.task(&operation)?.fingerprint().map_err(|_|AppError::Unauthorized)?.as_str()!=fingerprint{return Err(AppError::Unauthorized);}
                                 if pending.as_ref().is_none_or(|op|op.operation.operation_id==operation_id){
                                     if pending.is_none(){dispatched=Instant::now();*pending=Some(operation);}
+                                    awaiting_inspection_start=false;
                                 }else{return Err(AppError::BadRequest("执行进度不匹配".into()));}
                                 // Liveness evidence does not extend the fixed 90s execution budget/120s lease.
                             }
@@ -761,7 +773,7 @@ async fn serve_client(
                                 let fingerprint=state.operations.task(&operation)?.fingerprint().map_err(|_|AppError::Unauthorized)?;
                                 let report_digest=xscs_protocol::report_digest(&report).map_err(|_|AppError::Unauthorized)?;
                                 state.operations.accept_replayed_result(&operation,session,report).await?;
-                                if pending.as_ref().is_some_and(|op|op.operation.operation_id==operation_id){*pending=None;wake.notify_one();}
+                                if result_completes_pending(pending.as_ref().map(|op|op.operation.operation_id.as_str()), awaiting_inspection_start, &operation_id){*pending=None;wake.notify_one();}
                                 // Only acknowledge after the transaction has durably committed.
                                 let accepted=state.operations.receipt_operation(&operation_id,binding).await?;
                                 let finalized=!matches!(accepted.operation.state,xcss::operations::OperationState::Pending|xcss::operations::OperationState::Running|xcss::operations::OperationState::Unknown);
@@ -788,6 +800,7 @@ async fn serve_client(
                     if let Some(operation)=operation{
                         let task=state.operations.task(&operation)?;
                         *pending=Some(operation);dispatched=Instant::now();
+                        awaiting_inspection_start=mode==DeliveryMode::InspectOnly;
                         let (expires_at_unix_ms,remaining_ms)=state.operations.execution_budget(pending.as_ref().expect("stored dispatch"))?;
                         send(&mut socket,ManagerMessage::Task{mode,task:Box::new(task),expires_at_unix_ms,remaining_ms}).await?;
                     }
@@ -825,6 +838,40 @@ async fn log_request(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn old_result_cannot_release_a_newly_dispatched_inspection() {
+        assert!(!super::result_completes_pending(
+            Some("inspect"),
+            true,
+            "inspect"
+        ));
+        assert!(!super::result_completes_pending(
+            Some("inspect"),
+            true,
+            "other"
+        ));
+        assert!(super::result_completes_pending(
+            Some("inspect"),
+            false,
+            "inspect"
+        ));
+        assert!(!super::result_completes_pending(
+            Some("inspect"),
+            false,
+            "other"
+        ));
+        assert!(!super::result_completes_pending(None, false, "inspect"));
+    }
+
+    #[test]
+    fn hello_adopted_execution_can_complete_without_a_new_inspection_start() {
+        assert!(super::result_completes_pending(
+            Some("adopted"),
+            false,
+            "adopted"
+        ));
+    }
+
     #[test]
     fn log_range_query_validates_before_history_admission() {
         use serde_json::json;
