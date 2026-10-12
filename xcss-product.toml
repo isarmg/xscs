@@ -3,8 +3,8 @@ product_id = "xscs"
 
 [foundation]
 platform_generation = 1
-version = "1.0.9"
-git_rev = "c51ef3ac43c10314b091f0415ce1aebea7470a47"
+version = "1.0.11"
+git_rev = "dda7b25f34ebe717587b6c7083d3664707f0a31f"
 
 [[components]]
 id = "server"
