@@ -9,7 +9,7 @@ lto = "thin"
 strip = "symbols"
 
 [workspace.package]
-version = "1.0.2"
+version = "1.0.3"
 edition = "2024"
 rust-version = "1.99"
 authors = ["sarmg <isarmg@163.com>"]
