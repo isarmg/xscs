@@ -32,9 +32,7 @@
 .sunshine-management-panel .xcss-button.sunshine-file-button { min-height: 44px; padding: 10px 12px; border: 0; border-radius: 0; background: color-mix(in srgb, var(--xcss-action-primary) 10%, var(--xcss-bg-panel)); color: var(--xcss-text-primary); pointer-events: none; text-align: center; --xcss-server-corner-extent: var(--xcss-server-corner-control, 27px); }
 .sunshine-file-picker:hover .xcss-button.sunshine-file-button { background: color-mix(in srgb, var(--xcss-action-primary) 18%, var(--xcss-bg-panel)); }
 .sunshine-file-input { position: absolute; inset: 0; box-sizing: border-box; width: 100%; height: 100%; min-width: 0; margin: 0; opacity: 0; cursor: pointer; --xcss-server-corner-extent: 0px; }
-.sunshine-file-picker:has(.sunshine-file-input:focus-visible) .sunshine-file-button { outline: 3px solid var(--xcss-focus, #2563eb); outline-offset: 3px; }
 .sunshine-file-name { min-width: 0; overflow-wrap: anywhere; }
-@media (forced-colors: active) { .sunshine-file-picker:has(.sunshine-file-input:focus-visible) .sunshine-file-button { outline-color: Highlight; } }
 .sunshine-pairing-fields { display: grid; grid-template-columns: minmax(18rem, 2fr) minmax(8rem, .7fr) minmax(10rem, 1fr) max-content; align-items: end; gap: 12px 20px; }
 .sunshine-pairing-fields input[name="pin"] { letter-spacing: .2em; }
 .xscc-title { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; }
@@ -78,11 +76,15 @@
 .sunshine-config-select { position: relative; min-width: 0; }
 .sunshine-config-select-trigger { display: flex; align-items: center; justify-content: space-between; gap: 12px; text-align: start; cursor: pointer; }
 .sunshine-config-select-trigger > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.sunshine-config-select-trigger svg { flex-shrink: 0; }
-.sunshine-config-select-trigger[aria-expanded="true"] svg { transform: rotate(180deg); }
+.sunshine-config-select-trigger:focus, .sunshine-config-select-trigger:focus-visible { outline: none; }
+.sunshine-config-select-trigger svg { display: block; flex-shrink: 0; transform-origin: center; }
+.sunshine-config-select-trigger[aria-expanded="true"] svg { transform: rotate(90deg); }
 .sunshine-config-select-trigger:hover:not(:disabled), .sunshine-config-select-trigger[aria-expanded="true"] { border-color: var(--xcss-action-primary); }
 .sunshine-config-field > .xcss-input:disabled, .sunshine-config-select-trigger:disabled { opacity: .55; cursor: not-allowed; }
 .sunshine-config-select-options { position: absolute; z-index: 10; inset-inline: 0; top: calc(100% + 6px); box-sizing: border-box; overflow-y: auto; overscroll-behavior: contain; margin: 0; padding: 0; list-style: none; border: 1px solid var(--xcss-block-border, currentColor); border-radius: 0; background: var(--xcss-bg-panel); color: var(--xcss-text-primary); box-shadow: 0 8px 24px #0003; }
+/* Keep the first paint hidden until the renderer has installed both contour
+   paint and clipping. Hidden panels retain their measurable layout. */
+.sunshine-config-select-options:not([data-xcss-server-corner-state="clip"]) { visibility: hidden; }
 .sunshine-config-select-options[data-above="true"] { top: auto; bottom: calc(100% + 6px); }
 .sunshine-config-select-options > li { display: flex; align-items: center; justify-content: space-between; gap: 12px; box-sizing: border-box; min-height: 44px; padding: 10px var(--xcss-server-corner-text-inset, 26px); border-radius: 0; cursor: pointer; overflow-wrap: anywhere; }
 .sunshine-config-select-options > li[data-active="true"] { background: color-mix(in srgb, var(--xcss-action-primary) 12%, var(--xcss-bg-panel)); outline: 1px solid var(--xcss-action-primary); outline-offset: -1px; }
@@ -92,6 +94,7 @@
   .sunshine-config-label { grid-column: 1 / -1; }
 }
 @media (forced-colors: active) {
+  .sunshine-config-select-options:not([data-xcss-server-corner-state="clip"]) { visibility: visible; }
   .sunshine-config-select-options > li[data-active="true"] { outline-color: Highlight; }
 }
 .sunshine-overview { --sunshine-overview-label-width: 10.5rem; }
@@ -121,7 +124,7 @@
 .sunshine-management-panel :is(.sunshine-run-options, .sunshine-preparation) { --xcss-server-corner-extent: var(--xcss-server-corner-panel, 42px); }
 .sunshine-management-panel .xcss-button.sunshine-primary-action { --xcss-server-corner-extent: var(--xcss-server-corner-control, 27px); }
 .sunshine-config-field > .xcss-input, .sunshine-config-select-trigger { --xcss-server-corner-extent: var(--xcss-server-corner-control, 27px); }
-.sunshine-config-select-options { --xcss-server-corner-extent: var(--xcss-server-corner-panel, 42px); --xcss-server-corner-mode: clip; }
+.sunshine-config-select-options { --xcss-server-corner-extent: var(--xcss-server-corner-panel, 42px); --xcss-server-corner-mode: clip; --xcss-server-corner-foreground: 1; }
 .sunshine-config-select-options > li { --xcss-server-corner-extent: 0px; }
 .sunshine-workspace textarea { --xcss-server-corner-extent: var(--xcss-server-corner-control, 27px); }
 .xscc-status { --xcss-server-corner-extent: 0px; }

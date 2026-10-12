@@ -34,7 +34,7 @@ export function ConfigSelect({id, value, options, disabled, describedBy, onChang
   }, [expanded]);
 
   useEffect(() => {
-    if (expanded) list.current?.children[active]?.scrollIntoView({block: "nearest"});
+    if (expanded) list.current?.querySelectorAll('[role="option"]')[active]?.scrollIntoView({block: "nearest"});
   }, [expanded, active]);
 
   function show(index = Math.max(0, selected)) {
@@ -89,7 +89,7 @@ export function ConfigSelect({id, value, options, disabled, describedBy, onChang
       aria-activedescendant={expanded ? `${id}-option-${active}` : undefined} disabled={disabled}
       onClick={() => expanded ? setOpen(false) : show()} onKeyDown={onKeyDown}>
       <span>{options[selected]?.label ?? value}</span>
-      <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="m6 9 6 6 6-6"/></svg>
+      <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="m9 6 6 6-6 6"/></svg>
     </button>
     {expanded && <ul ref={list} id={`${id}-options`} role="listbox" aria-labelledby={`${id}-label`}
       className="sunshine-config-select-options" data-above={placement.above} style={{maxHeight: placement.height}}>
