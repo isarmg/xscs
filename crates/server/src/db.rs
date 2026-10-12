@@ -482,40 +482,6 @@ pub fn now_micros() -> anyhow::Result<i64> {
 pub async fn ready(pool: &SqlitePool) -> bool {
     crate::database_schema::is_current(pool).await
 }
-#[derive(Clone, Copy, Serialize)]
-pub struct DoctorReport {
-    pub schema_ready: bool,
-    pub integrity_ready: bool,
-    pub foreign_keys_ready: bool,
-    pub writable: bool,
-    pub encrypted_values_ready: bool,
-}
-impl DoctorReport {
-    pub fn healthy(self) -> bool {
-        self.schema_ready
-            && self.integrity_ready
-            && self.foreign_keys_ready
-            && self.writable
-            && self.encrypted_values_ready
-    }
-}
-pub async fn doctor(pool: &SqlitePool, secrets: &SecretBox) -> DoctorReport {
-    let writable = async {
-        let mut tx = pool.begin().await?;
-        audit(&mut tx, "doctor.write_probe", "doctor", "doctor", None).await?;
-        tx.rollback().await?;
-        Ok::<_, AppError>(())
-    }
-    .await
-    .is_ok();
-    DoctorReport {
-        schema_ready: ready(pool).await,
-        integrity_ready: xcss::sqlite::integrity_check(pool).await.is_ok(),
-        foreign_keys_ready: xcss::sqlite::foreign_key_check(pool).await.is_ok(),
-        writable,
-        encrypted_values_ready: require_current_runtime_state(pool, secrets).await.is_ok(),
-    }
-}
 pub async fn require_current_runtime_state(
     pool: &SqlitePool,
     secrets: &SecretBox,

@@ -6,19 +6,15 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=xscs
-Group=xscs
-EnvironmentFile=/etc/isarmg/xscs.env
-ExecStart=/opt/isarmg/xscs/current/bin/xscs run --release-root /opt/isarmg/xscs/current
-StateDirectory=isarmg/xscs/db
-StateDirectoryMode=0700
+User=isarmg-xscs
+Group=isarmg-xscs
+ExecStart=/opt/isarmg/xscs/bin/xscs --config /etc/isarmg/xscs/config.json run
 RuntimeDirectory=isarmg/xscs
 RuntimeDirectoryMode=0700
 UMask=0077
 NoNewPrivileges=true
 ProtectSystem=strict
-ProtectHome=true
-PrivateTmp=true
+ProtectHome=read-only
 PrivateDevices=true
 ProtectKernelTunables=true
 ProtectKernelModules=true
@@ -38,6 +34,7 @@ AmbientCapabilities=
 ProtectProc=invisible
 ProcSubset=pid
 RemoveIPC=true
+TimeoutStopSec=120s
 Restart=on-failure
 RestartSec=3
 

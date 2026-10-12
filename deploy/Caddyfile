@@ -1,7 +1,0 @@
-# Run this on the shared HTTPS entry point. Replace the domain and backend IP.
-# The xscs host sets XSCS_BIND=10.20.0.12:18104 and XSCS_PRODUCTION=true.
-# Only the controlled ingress network should be able to reach the HTTP backend.
-# Each other server project uses its own domain block and single-host backend.
-sunshine.example.com {
-	reverse_proxy 10.20.0.12:18104
-}

@@ -15,7 +15,7 @@ from typing import NoReturn
 
 
 APPLICATION = "xscs"
-VERSION = "1.0.3"
+VERSION = __import__("tomllib").loads((Path(__file__).resolve().parents[1] / "Cargo.toml").read_text())["workspace"]["package"]["version"]
 TARGET = "x86_64-unknown-linux-gnu"
 CONTRACT_FORMAT = "xscs-release-v1"
 MANIFEST_FORMAT = "xscs-files-v1"

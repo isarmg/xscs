@@ -270,13 +270,9 @@ pub fn database_path(database_url: &str) -> anyhow::Result<PathBuf> {
         value != ":memory:",
         "in-memory database files are unsupported"
     );
-    ensure!(
-        !value.contains('?')
-            && !value.contains('#')
-            && !value.contains('%')
-            && !value.contains('\0'),
-        "database requires a plain, unescaped SQLite file URL without query or fragment"
-    );
+    // The product derives this value from data_dir and opens it with filename(),
+    // so URL punctuation is literal filename content, never query syntax.
+    ensure!(!value.contains('\0'), "database path must not contain NUL");
     let path = PathBuf::from(value);
     let absolute = if path.is_absolute() {
         path

@@ -1,121 +1,58 @@
-# xscs 1.0.3 发行包部署手册
+# 部署与运维
 
-## 安装与初始化
+Linux x86_64 GNU 服务端提供普通 HTTP，Web 已内嵌。生产入口应提供 HTTPS/WSS，转发 Host、Origin 与 WebSocket Upgrade；不要求任何代理品牌或 X-Forwarded-Proto。后端仅向受控网络开放。
 
+## 安装与升级
 
-在一台尚未安装本服务的 Linux x86_64 / glibc 主机上，以可使用 sudo 的管理员执行。需要 systemd、GNU tar、sha256sum、curl、OpenSSL 以及账户管理工具。
+安装需要 Bash、Python 3、systemd 及普通账户管理工具。在解压的发行包根目录选择自己的配置，密码只通过stdin：
 
-先从 [Release](https://github.com/isarmg/xscs/releases) 下载同版 Linux 归档及 `.sha256`，在下载目录执行；以下检查用于确认安装位置为空；已有服务的管理见本文后面的运行检查。
-
-```sh
-set -eu
-sha256sum --check --strict xscs-1.0.3-x86_64-unknown-linux-gnu.tar.gz.sha256
-sudo test ! -e /opt/isarmg/xscs
-sudo test ! -e /etc/isarmg/xscs.env
-sudo test ! -e /etc/systemd/system/xscs.service
-sudo test ! -e /var/lib/isarmg/xscs
-sudo install -d -m 0755 -o root -g root /opt/isarmg /opt/isarmg/xscs /opt/isarmg/xscs/releases
-sudo tar -xzf xscs-1.0.3-x86_64-unknown-linux-gnu.tar.gz \
-  -C /opt/isarmg/xscs/releases --same-permissions --delay-directory-restore
-sudo chown -R root:root /opt/isarmg/xscs/releases/1.0.3
-sudo /opt/isarmg/xscs/releases/1.0.3/bin/xscs \
-  verify-release --root /opt/isarmg/xscs/releases/1.0.3
-sudo groupadd --system xscs
-sudo useradd --system --gid xscs --home-dir /var/lib/isarmg/xscs \
-  --no-create-home --shell /usr/sbin/nologin xscs
-sudo install -d -m 0700 -o xscs -g xscs /var/lib/isarmg/xscs/db
-sudo install -d -m 0755 -o root -g root /etc/isarmg
-sudo sh -c 'umask 077; set -C; : > /etc/isarmg/xscs.env'
-openssl rand -base64 32
-sudoedit /etc/isarmg/xscs.env
+```bash
+cp config/config.json.example ./my-config.json
+${EDITOR:-vi} ./my-config.json
+read -rs -p '管理员密码: ' password; printf '\n'
+printf '%s\n' "$password" | sudo ./install.sh setup ./my-config.json admin
+unset password
+sudo systemctl enable --now xscs
+sudo -u isarmg-xscs /opt/isarmg/xscs/bin/xscs status --json
 ```
 
-填写下列配置：将密码替换为至少 12 字节的独立强密码，密钥替换为上一步生成的 Base64 值；密钥需长期保存。
+唯一安装入口为 `install.sh setup CONFIG_JSON [USERNAME]` 或 `install.sh upgrade`。setup创建不可登录的isarmg-xscs普通系统用户与同名组，安装文件、复制所选配置、从stdin初始化并check；不自动启动。用户名默认admin。调用者环境变量不会覆盖安装所选JSON。
 
-```dotenv
-XSCS_DATABASE_URL=sqlite:///var/lib/isarmg/xscs/db/xscs.sqlite3
-XSCS_BIND=127.0.0.1:18104
-XSCS_PRODUCTION=true
-XSCS_BOOTSTRAP_ADMIN_USERNAME=admin
-XSCS_BOOTSTRAP_ADMIN_PASSWORD=REPLACE_WITH_A_UNIQUE_LONG_PASSWORD
-XSCS_CREDENTIAL_KEY=REPLACE_WITH_BASE64_ENCODED_32_RANDOM_BYTES
-XSCS_CREDENTIAL_KEY_ID=primary
-```
+升级从新包运行 `sudo ./install.sh upgrade`：读取现有配置，原服务active时先停服，替换程序/unit后check，只在此前active时重启；不初始化、不修改配置/密钥/数据库。校验失败保持停服并报告错误，不用init覆盖状态。
 
-先初始化，再启动服务：
+布局：
 
-```sh
-sudo ln -sT /opt/isarmg/xscs/releases/1.0.3 /opt/isarmg/xscs/current
-sudo systemd-run --wait --collect -p User=xscs -p Group=xscs \
-  -p EnvironmentFile=/etc/isarmg/xscs.env \
-  /opt/isarmg/xscs/releases/1.0.3/bin/xscs init
-sudo install -m 0644 -o root -g root \
-  /opt/isarmg/xscs/current/systemd/xscs.service /etc/systemd/system/xscs.service
-sudo systemctl daemon-reload
-sudo systemctl enable --now xscs.service
-curl --fail http://127.0.0.1:18104/readyz
-```
+- 程序 `/opt/isarmg/xscs/bin/xscs`
+- 配置 `/etc/isarmg/xscs/config.json`，isarmg-xscs所有、0600；直接父目录0700
+- data_dir默认 `/var/lib/isarmg/xscs`，也可选其他绝对目录；isarmg-xscs所有、0700
+- 临时运行目录 `/run/isarmg/xscs`，仅systemd管理
+- 数据库 `data_dir/xscs.sqlite3`；密钥 `data_dir/secrets.json`；日志 `data_dir/logs`
 
-就绪响应应为 `{"ready":true}`。通过 HTTPS 入口转发到配置的后端地址，使用配置的管理员账号登录；初始化成功后从环境文件移除 `XSCS_BOOTSTRAP_ADMIN_PASSWORD`。客户端须另行安装并配对。
+安装器根据所选data_dir生成systemd ReadWritePaths白名单，正确转义路径。父目录必须允许服务用户遍历；check以服务UID执行，安装器绝不递归chown业务树。ProtectSystem=strict保持，ProtectHome=read-only，不隔离临时目录中的显式自定义状态。
 
+## 初始化与密钥
 
-## HTTPS 入口
+安装器调用一次 `init --username admin`，只接受新建或空私有数据目录。init自动生成32字节随机业务密钥，固定primary标识，原子写入0600 secrets.json，建立数据库与管理员。重复init拒绝已有数据。
 
-每个 xscs 项目实例在一台服务器上运行，程序、SQLite 数据库与状态文件留在该机。其他服务端项目可以部署在其他服务器，由统一入口按各自独立三级域名转发；不拆分 xscs 组件，也不为同一实例配置多机副本。
+run只加载现有密钥，缺失、损坏、权限错误或状态不完整均拒绝启动，绝不补新密钥。secrets.json为私有版本1文档，字段version、credential_key_id、credential_key；密钥采用规范Base64，标识必须primary。备份整个data_dir，不单独编辑或替换密钥文件。
 
-HTTPS/WSS 和系统信任的证书由路由或反向代理入口保证。xscs 提供普通 HTTP 后端，不识别代理品牌，也不要求 `X-Forwarded-Proto`。同机入口可使用默认的 `127.0.0.1:18104`；入口在另一台服务器时，将 `XSCS_BIND` 改为 xscs 主机的内网地址，例如 `10.20.0.12:18104`，保留 `XSCS_PRODUCTION=true`，再按配置章节重启服务。后端端口只向受控入口网络开放；跨越不可信网络的回源链路需由部署环境保护。
+## 配置
 
-将一个域名的所有路径原样转发到该后端，保留原始 Host、Origin、Sec-Fetch-Site、Authorization 与响应头、JSON 错误及状态码，支持 `/xscc/v1/` 的 WebSocket Upgrade。不要添加或剥离 URL 路径前缀。浏览器和 Client 均使用这个公网 HTTPS 域名。
+默认 `/etc/isarmg/xscs/config.json`。仅隐式默认文件不存在时使用环境和默认值；显式 --config/XSCS_CONFIG 缺失、权限或格式错误都报错。CLI > XSCS_ 环境 > JSON > defaults，每层均验证。
 
-例如在统一入口上使用 Caddy，将域名和内网地址替换为实际值：
+- bind：SocketAddr，默认127.0.0.1:18104；生产支持内网、0.0.0.0与[::]
+- data_dir：唯一内部数据根，默认/var/lib/isarmg/xscs；绝对路径
+- development：默认false；true仅允许回环HTTP，生产保持Secure Cookie与Origin/Host检查
+- trusted_proxies：默认空的IP/CIDR字符串数组。仅明确可信连接对端的X-Forwarded-For参与解析，从右向左取首个不可信地址。未信任对端的代理头被忽略；不解析X-Real-IP，亦不用于决定HTTPS。
+- log_level：info（默认）、trace、debug、warn、error、off
+- development_web_dir：仅unbound开发构建可用的显式Web目录
 
-```caddyfile
-sunshine.example.com {
-    reverse_proxy 10.20.0.12:18104
-}
-```
+对应环境是 XSCS_BIND、XSCS_DATA_DIR、XSCS_DEVELOPMENT、XSCS_LOG_LEVEL、XSCS_TRUSTED_PROXIES（JSON数组）、XSCS_DEV_WEB_DIR。全局 --bind、--data-dir、--development true/false、--log-level 可覆盖。密钥与数据库路径不是配置入口。
 
-其他项目各用自己的域名块和后端地址。Caddy 的普通 HTTP 回源保留 Host，并自动处理 WebSocket Upgrade，见[官方 reverse_proxy 文档](https://caddyserver.com/docs/caddyfile/directives/reverse_proxy)。完整示例位于 [deploy/Caddyfile](https://github.com/isarmg/xscs/blob/main/deploy/Caddyfile)；其他入口遵守上述 HTTP 转发约定即可，[Nginx 设备通道示例](https://github.com/isarmg/xscs/blob/main/deploy/client-ingress.nginx.conf)也支持配置内网后端。Windows Client 的系统信任链来自 LocalSystem 的计算机证书存储。
+## 检查、日志与维护
 
-## 运行检查
+config validate 只验证配置，初始化前可运行。check 只读检查已有数据库、密钥、资源和目录。status 查询实际live readiness，不把进程存在当成功。run 仅运行已初始化实例，不隐式创建账号或密钥。
 
-```sh
-sudo systemctl status xscs.service --no-pager
-sudo journalctl -u xscs.service -n 100 --no-pager
-curl --fail http://127.0.0.1:18104/readyz
-```
+前台和systemd使用同一UTC结构日志，保留UI日志语义。服务写 data_dir/logs 下滚动日志，默认每文件8MiB、4个归档；log_level统一控制，不读取RUST_LOG。systemd提供120秒停止窗口，维护前等待systemctl stop完成。
 
-以上 curl 使用默认回环地址；如果修改了 `XSCS_BIND`，请改为配置的内网地址，并从入口主机确认也能访问。预期服务为 active，`/readyz` 返回 `{"ready":true}`；`/healthz` 的正常状态为 HTTP 204。然后在浏览器打开 HTTPS 地址并登录，创建一个实例，按 [xscc 安装说明](https://github.com/isarmg/xscc/blob/main/docs/platform-setup.md)完成配对。管理台应显示设备在线；读取一次 Sunshine 配置并确认任务返回结果。
-
-修改环境文件后执行 `sudo systemctl restart xscs.service`，再检查就绪状态。`XSCS_CREDENTIAL_KEY` 与数据库内密文配套，日常修改密码或实例授权码时保持它不变；替换该密钥会使已有密文不可读。
-
-## 安装布局
-
-| 路径 | 用途 |
-|---|---|
-| `/opt/isarmg/xscs/releases/1.0.3/` | root 所有的只读发行目录 |
-| `/opt/isarmg/xscs/current` | 指向该版本的绝对链接 |
-| `/etc/isarmg/xscs.env` | root 0600 配置，由 systemd 加载 |
-| `/var/lib/isarmg/xscs/db/xscs.sqlite3` | 服务账号所有的当前数据库 |
-| `/var/lib/isarmg/xscs/db/logs/` | 私有轮转运行日志 |
-
-归档的顶层是 `1.0.3/`，包含 `bin/xscs`、`systemd/xscs.service`、`web-assets.json`、`README.md` 和 `RELEASE-MANIFEST.json`。管理页面已内嵌到二进制。修改运行参数使用环境文件；发行目录保留下载时的内容与权限，供启动校验使用。
-
-`identity` 输出产品、版本、源码提交和结构身份；`verify-release` 核对完整文件树。SHA-256 用于核对下载完整性，仍需从可信发布页取得归档及校验文件。
-
-| 身份字段 | 当前值 |
-|---|---|
-| `application` | `xscs` |
-| `version` | `1.0.3` |
-| `schema_revision` | `1` |
-| `target` | `x86_64-unknown-linux-gnu` |
-
-## 遇到问题
-
-- 校验失败：重新核对下载来源、文件名及完整性；保留原始错误。
-- `init` 失败：检查环境文件中的密码、Base64 密钥、数据目录所有者与 0700 权限。
-- 服务无法启动：先读 journal，确认已初始化，发行树校验通过且配置和数据库配套。
-- 本机 ready 正常但无法登录：检查 HTTPS 代理、浏览器地址、Host/Origin 和主机时间。
-- 客户端离线：检查客户端日志、HTTPS 信任和配对；再确认 WSS Upgrade 与本机 Sunshine 访问。
-
-[配置参考](https://github.com/isarmg/xscs/blob/main/docs/configuration.md) · [日常运维](https://github.com/isarmg/xscs/blob/main/docs/administration.md) · [故障排查](https://github.com/isarmg/xscs/blob/main/docs/troubleshooting.md)
+重置管理员密码使用 `xscs admin reset-password --username admin`，密码从stdin读取；执行前停服，成功后重启并重新登录。普通改名改密仍可用Web账户设置。

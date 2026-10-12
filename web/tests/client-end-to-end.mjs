@@ -70,7 +70,7 @@ try {
   res.statusCode=404;json({status:false});
  });
  await new Promise(done=>sunshine.listen(0,"127.0.0.1",done));
- await withLocalServer({prefix:"XSCS",binary:process.env.SUNSHINE_TEST_SERVER_BINARY??"../target/x86_64-unknown-linux-gnu/debug/xscs",extraEnv:{XSCS_PRODUCTION:"false",XSCS_CREDENTIAL_KEY:randomBytes(32).toString("base64"),XSCS_CREDENTIAL_KEY_ID:"test"}},async({base,password,database})=>{
+ await withLocalServer({prefix:"XSCS",binary:process.env.XSCS_TEST_SERVER_BINARY??"../target/x86_64-unknown-linux-gnu/debug/xscs",extraEnv:{XSCS_DEVELOPMENT:"true"}},async({base,password,database})=>{
   const target=new URL(base);
   ingress=httpsServer(tls,(req,res)=>{
    const upstream=httpRequest(base+req.url,{method:req.method,headers:{...req.headers,"x-forwarded-proto":"https"}},reply=>{res.writeHead(reply.statusCode,reply.headers);reply.pipe(res)});

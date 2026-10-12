@@ -24,6 +24,6 @@ xscs 将业务服务和管理 Web 放在一个 Linux AMD64 GNU 可执行程序�
 
 ## 状态与资源
 
-`init` 创建私有数据库与首个管理员；`run` 验证当前结构后运行。配置校验使用独立只读快照，doctor 与密码维护在停服窗口取得排他维护锁。正式发行通过 manifest 绑定源码、二进制、资源和权限。
+`init` 创建私有数据库与首个管理员；`run` 验证当前结构后运行。config validate仅验证配置；check使用独立只读快照验证状态。密码维护在停服窗口取得排他维护锁。正式发行通过 manifest 绑定源码、二进制、资源和权限。
 
 构建、测试、发行步骤及验证范围见[开发指南](development.md)。Rust 原生接口结论见[unsafe 审查](unsafe-audit.md)。

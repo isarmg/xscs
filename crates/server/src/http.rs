@@ -53,6 +53,7 @@ pub struct WorkerState {
     client_slots: HistoryReads,
     history_reads: HistoryReads,
     task_writes: HistoryReads,
+    trusted_proxies: xcss::client_ip::TrustedProxies,
 }
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct InternalIdentity {
@@ -85,7 +86,12 @@ impl WorkerState {
             client_slots: HistoryReads::with_capacity(256),
             history_reads: HistoryReads::new(),
             task_writes: HistoryReads::new(),
+            trusted_proxies: xcss::client_ip::TrustedProxies::default(),
         })
+    }
+    pub fn with_trusted_proxies(mut self, trusted: xcss::client_ip::TrustedProxies) -> Self {
+        self.trusted_proxies = trusted;
+        self
     }
     pub fn operation_manager(&self) -> &OperationManager {
         &self.operations
@@ -95,6 +101,7 @@ pub fn router(
     state: WorkerState,
     runtime: xcss::server_runtime::RuntimeHandle,
 ) -> anyhow::Result<Router> {
+    let trusted_proxies = state.trusted_proxies.clone();
     let protected = Router::new()
         .route("/sunshine/config-fields", get(config_fields))
         .route("/sunshine/devices", get(devices).post(create_device))
@@ -166,6 +173,10 @@ pub fn router(
         .with_state(state)
         .merge(platform)
         .method_not_allowed_fallback(|| async { AppError::MethodNotAllowed })
+        .layer(axum::middleware::from_fn_with_state(
+            trusted_proxies,
+            xcss::client_ip::middleware,
+        ))
         .layer(axum::middleware::from_fn(log_request))
         .layer(axum::middleware::from_fn(
             xcss::server_cli::request_context_middleware,

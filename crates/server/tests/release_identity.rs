@@ -29,10 +29,8 @@ fn release_tooling_targets_only_the_current_product_contract() {
     let manifest_writer = include_str!("../../../scripts/write-release-manifest.py");
     let systemd_unit = include_str!("../../../deploy/xscs.service");
 
-    let current_version = env!("CARGO_PKG_VERSION");
-    let version_assignment = format!("VERSION = \"{current_version}\"");
-    assert!(package_release.contains(&version_assignment));
-    assert!(manifest_writer.contains(&version_assignment));
+    assert!(package_release.contains("Cargo.toml"));
+    assert!(manifest_writer.contains("Cargo.toml"));
     assert!(manifest_writer.contains(&format!(
         "identity[\"schema_revision\"] != {}",
         xscs::database_schema::SCHEMA_REVISION
@@ -41,10 +39,12 @@ fn release_tooling_targets_only_the_current_product_contract() {
         .lines()
         .filter(|line| line.starts_with("ExecStart="))
         .collect();
-    assert_eq!(
-        starts,
-        ["ExecStart=/opt/isarmg/xscs/current/bin/xscs run --release-root /opt/isarmg/xscs/current"]
-    );
+    assert_eq!(starts.len(), 1);
+    assert!(starts[0].contains("/opt/isarmg/xscs/bin/xscs"));
+    assert!(starts[0].contains("/etc/isarmg/xscs/config.json"));
+    assert!(!starts[0].contains("--release-root"));
+    assert!(!systemd_unit.contains("DynamicUser="));
+    assert!(systemd_unit.contains("User=isarmg-xscs"));
 
     for source in [package_release, manifest_writer, systemd_unit] {
         assert!(!source.contains("0.7.0"));

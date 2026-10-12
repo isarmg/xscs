@@ -15,14 +15,27 @@ fn private(path: &Path) {
     fs::set_permissions(path, fs::Permissions::from_mode(0o700)).unwrap();
 }
 fn output(config: &Path, args: &[&str]) -> Output {
-    Command::new(BINARY)
+    let mut child = Command::new(BINARY)
         .env_clear()
         .args(args)
         .arg("--config")
         .arg(config)
         .arg("--json")
-        .output()
-        .unwrap()
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    if args.first() == Some(&"init") || args.first() == Some(&"admin") {
+        use std::io::Write;
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(b"test-password1!\n")
+            .unwrap();
+    }
+    child.wait_with_output().unwrap()
 }
 fn report(output: &Output) -> Value {
     serde_json::from_slice(&output.stdout).unwrap_or_else(|_| {
@@ -53,7 +66,9 @@ fn state(path: &Path) -> BTreeMap<PathBuf, (Vec<u8>, std::time::SystemTime)> {
         }
     }
     let mut result = BTreeMap::new();
-    collect(path, path, &mut result);
+    if path.exists() {
+        collect(path, path, &mut result);
+    }
     result
 }
 struct Running(Child);
@@ -67,18 +82,21 @@ impl Drop for Running {
 fn explicit_initialization_read_only_diagnostics_and_real_readiness() {
     let temporary = tempfile::tempdir().unwrap();
     fs::set_permissions(temporary.path(), fs::Permissions::from_mode(0o700)).unwrap();
-    let data = temporary.path().join("data");
-    private(&data);
+    let data = temporary.path().join("data % # ?");
+
     let shared = temporary.path().join("shared");
     private(&shared);
     let socket = TcpListener::bind("127.0.0.1:0").unwrap();
     let bind = socket.local_addr().unwrap();
     drop(socket);
     let config = temporary.path().join("config.json");
-    let mut settings = json!({"data_dir":data,"bind":bind.to_string(),"production":false,"credential_key":"BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc=","bootstrap_admin_password":"test-password1!"});
+    let mut settings = json!({"data_dir":data,"bind":bind.to_string(),"development":true});
     fs::write(&config, serde_json::to_vec(&settings).unwrap()).unwrap();
     fs::set_permissions(&config, fs::Permissions::from_mode(0o600)).unwrap();
     let empty = state(&data);
+    assert!(output(&config, &["config", "validate"]).status.success());
+    assert!(!output(&config, &["check"]).status.success());
+    assert_eq!(state(&data), empty);
     for flag in ["--help", "--version"] {
         let result = Command::new(BINARY).env_clear().arg(flag).output().unwrap();
         assert!(result.status.success());
@@ -119,6 +137,35 @@ fn explicit_initialization_read_only_diagnostics_and_real_readiness() {
         )
     );
     assert_eq!(report(&initialized)["ready"], false);
+    let secrets_path = data.join("secrets.json");
+    let secrets = fs::read(&secrets_path).unwrap();
+    let secret_doc: Value = serde_json::from_slice(&secrets).unwrap();
+    assert_eq!(secret_doc["credential_key_id"], "primary");
+    assert_eq!(
+        fs::metadata(&secrets_path).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
+    fs::remove_file(&secrets_path).unwrap();
+    let missing_key_state = state(&data);
+    assert!(output(&config, &["config", "validate"]).status.success());
+    assert!(!output(&config, &["run"]).status.success());
+    assert!(!output(&config, &["check"]).status.success());
+    assert_eq!(
+        state(&data),
+        missing_key_state,
+        "run regenerated a missing key"
+    );
+    fs::write(&secrets_path, b"{\"version\":999}").unwrap();
+    fs::set_permissions(&secrets_path, fs::Permissions::from_mode(0o600)).unwrap();
+    let corrupted_key_state = state(&data);
+    assert!(!output(&config, &["run"]).status.success());
+    assert_eq!(
+        state(&data),
+        corrupted_key_state,
+        "run replaced a corrupt key"
+    );
+    fs::write(&secrets_path, &secrets).unwrap();
+    fs::set_permissions(&secrets_path, fs::Permissions::from_mode(0o600)).unwrap();
     let initialized_state = state(&data);
     assert!(!initialized_state.is_empty());
     let again = output(&config, &["init"]);
@@ -129,14 +176,11 @@ fn explicit_initialization_read_only_diagnostics_and_real_readiness() {
         initialized_state,
         "repeated init changed current data"
     );
-    let parent_traversal = output(
-        &temporary.path().join("data/../config.json"),
-        &["config", "validate"],
-    );
+    let parent_traversal = output(&temporary.path().join("data/../config.json"), &["check"]);
     assert!(!parent_traversal.status.success());
     report(&parent_traversal);
     assert_eq!(state(&data), initialized_state);
-    let valid = output(&config, &["config", "validate"]);
+    let valid = output(&config, &["check"]);
     assert!(
         valid.status.success(),
         "{}",
@@ -174,19 +218,22 @@ fn explicit_initialization_read_only_diagnostics_and_real_readiness() {
         assert_eq!(report(&rejected)["code"], "state.maintenance_pending");
         assert_eq!(state(&data), pending_state);
     }
-    assert!(output(&config, &["config", "validate"]).status.success());
+    assert!(output(&config, &["check"]).status.success());
     assert_eq!(state(&data), pending_state);
     fs::remove_file(&pending).unwrap();
     let original = fs::read(&config).unwrap();
     settings["unexpected_private_field"] = json!("never-emit-this-secret");
     fs::write(&config, serde_json::to_vec(&settings).unwrap()).unwrap();
-    let unknown = output(&config, &["config", "validate"]);
+    let unknown = output(&config, &["check"]);
     assert!(!unknown.status.success());
     report(&unknown);
     assert!(!String::from_utf8_lossy(&unknown.stdout).contains("never-emit-this-secret"));
     assert_eq!(state(&data), initialized_state);
     fs::write(&config, original).unwrap();
-    let child = Command::new(BINARY)
+    // A source-bound binary must run independently of the unpacked release tree.
+    let relocated = temporary.path().join("standalone-xscs");
+    fs::copy(BINARY, &relocated).unwrap();
+    let child = Command::new(relocated)
         .env_clear()
         .arg("run")
         .arg("--config")
@@ -247,7 +294,7 @@ fn explicit_initialization_read_only_diagnostics_and_real_readiness() {
         );
         std::thread::sleep(Duration::from_millis(20));
     }
-    let while_running = output(&config, &["config", "validate"]);
+    let while_running = output(&config, &["check"]);
     assert!(
         while_running.status.success(),
         "{}",
@@ -269,6 +316,22 @@ fn explicit_initialization_read_only_diagnostics_and_real_readiness() {
             .success()
     );
     assert!(running.0.wait().unwrap().success());
+    assert_eq!(
+        fs::read(&secrets_path).unwrap(),
+        secrets,
+        "runtime changed its key"
+    );
+    let reset = output(&config, &["admin", "reset-password", "--username", "admin"]);
+    assert!(
+        reset.status.success(),
+        "{}",
+        String::from_utf8_lossy(&reset.stderr)
+    );
+    assert_eq!(
+        fs::read(&secrets_path).unwrap(),
+        secrets,
+        "password reset changed the business key"
+    );
     let records = fs::read_dir(data.join("logs"))
         .unwrap()
         .filter_map(Result::ok)
@@ -376,4 +439,34 @@ fn assert_http_error(
     assert!(record["code"].is_string(), "{record}");
     assert_eq!(record["request_id"].as_str(), Some(request_id.as_str()));
     request_id.clone()
+}
+
+#[test]
+fn shared_fresh_install_contract_and_logging_precedence() {
+    let temporary = tempfile::tempdir().unwrap();
+    fs::set_permissions(temporary.path(), fs::Permissions::from_mode(0o700)).unwrap();
+    let data = temporary.path().join("data % # ?");
+    let config = temporary.path().join("config.json");
+    fs::write(
+        &config,
+        serde_json::to_vec(&json!({"data_dir":data,"log_level":"info"})).unwrap(),
+    )
+    .unwrap();
+    fs::set_permissions(&config, fs::Permissions::from_mode(0o600)).unwrap();
+    let precedence = Command::new(BINARY)
+        .env_clear()
+        .env("XSCS_LOG_LEVEL", "warn")
+        .arg("--config")
+        .arg(&config)
+        .args(["--log-level", "error", "config", "validate"])
+        .output()
+        .unwrap();
+    assert!(precedence.status.success());
+    assert_eq!(report(&precedence)["sources"]["/log_level"], "command_line");
+    xcss::testkit::assert_deployment_cli_contract(
+        Path::new(BINARY),
+        &config,
+        &data,
+        &["xscs.sqlite3", "secrets.json"],
+    );
 }

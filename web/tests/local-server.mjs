@@ -17,15 +17,16 @@ export async function withLocalServer({ prefix, binary, extraEnv = {} }, work) {
     await new Promise(done => listener.listen(0, "127.0.0.1", done));
     const port = listener.address().port;
     await new Promise(done => listener.close(done));
-    const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith(prefix + "_") && key !== "XCSS_DEV_WEB_DIR"));
+    const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith(prefix + "_") && key !== "XSCS_DEV_WEB_DIR"));
     Object.assign(env, extraEnv, {
       [`${prefix}_BIND`]: `127.0.0.1:${port}`,
-      [`${prefix}_DATABASE_URL`]: `sqlite://${root}/db/app.sqlite3`,
-      [`${prefix}_BOOTSTRAP_ADMIN_USERNAME`]: "admin",
-      [`${prefix}_BOOTSTRAP_ADMIN_PASSWORD`]: password,
+      [`${prefix}_DATA_DIR`]: join(root, "db"),
     });
     log = await open(join(root, "server.log"), "wx", 0o600);
-    child = spawn(resolve(binary), ["serve"], { cwd: root, env, stdio: ["ignore", log.fd, log.fd] });
+    const init = spawn(resolve(binary), ["init", "--username", "admin"], { cwd: root, env, stdio: ["pipe", log.fd, log.fd] });
+    init.stdin.end(password + "\n");
+    await new Promise((done, fail) => { init.once("error", fail); init.once("exit", code => code === 0 ? done() : fail(new Error(`Initialization failed: ${code}`))); });
+    child = spawn(resolve(binary), ["run"], { cwd: root, env, stdio: ["ignore", log.fd, log.fd] });
     await new Promise((done, fail) => { child.once("spawn", done); child.once("error", fail); });
     const base = `http://127.0.0.1:${port}`;
     let ready = false;
@@ -36,7 +37,7 @@ export async function withLocalServer({ prefix, binary, extraEnv = {} }, work) {
       await new Promise(done => setTimeout(done, 100));
     }
     assert.ok(ready, `Test service did not become ready; inspect ${root}`);
-    await work({ base, password, root, database: join(root,"db","app.sqlite3") });
+    await work({ base, password, root, database: join(root,"db","xscs.sqlite3") });
   } finally {
     if (child?.pid && child.exitCode === null && child.signalCode === null) {
       child.kill("SIGTERM");

@@ -17,9 +17,8 @@ pub struct ServeConfig {
     pub bind: SocketAddr,
     pub database_url: String,
     pub production: bool,
-    pub secrets: SecretBox,
-    pub bootstrap_admin_username: String,
-    pub bootstrap_admin_password: Option<String>,
+    pub log_level: String,
+    pub trusted_proxies: xcss::client_ip::TrustedProxies,
     pub static_dir: Option<PathBuf>,
     pub data_dir: PathBuf,
     pub sources: BTreeMap<String, ConfigSource>,
@@ -27,15 +26,20 @@ pub struct ServeConfig {
 
 impl ServeConfig {
     pub fn from_runtime() -> anyhow::Result<Self> {
-        Self::from_sources(None, None, None)
+        Self::from_sources(None, None, None, None, None)
     }
 
     pub fn from_sources(
         config: Option<&Path>,
         data_dir: Option<&Path>,
         bind: Option<SocketAddr>,
+        development: Option<bool>,
+        log_level: Option<&str>,
     ) -> anyhow::Result<Self> {
-        let config = config.map(normalize_config_path).transpose()?;
+        let config = default_config_path(config)?
+            .as_deref()
+            .map(normalize_config_path)
+            .transpose()?;
         let file = config
             .as_deref()
             .map(xcss::config::read_private_file)
@@ -51,6 +55,12 @@ impl ServeConfig {
         if let Some(bind) = bind {
             command_line.push(Override::new("/bind", bind.to_string()));
         }
+        if let Some(development) = development {
+            command_line.push(Override::new("/development", development));
+        }
+        if let Some(level) = log_level {
+            command_line.push(Override::new("/log_level", level));
+        }
         let loaded = xcss::config::resolve_validated(
             &Settings::default(),
             file.as_deref(),
@@ -59,54 +69,24 @@ impl ServeConfig {
             validate_intrinsic,
         )?;
         let settings = loaded.value;
-        let database_url = match settings.database_url {
-            Some(url) => url,
-            None => format!(
-                "sqlite://{}",
-                settings
-                    .data_dir
-                    .as_ref()
-                    .context("data_dir or database_url is required")?
-                    .join("xscs.sqlite3")
-                    .display()
-            ),
-        };
-        let database_path = crate::database_schema::database_path(&database_url)?;
-        let data_dir = settings.data_dir.unwrap_or_else(|| {
-            database_path
-                .parent()
-                .expect("database has a parent")
-                .to_path_buf()
-        });
+        let data_dir = settings.data_dir;
+        let database_url = format!("sqlite://{}", data_dir.join("xscs.sqlite3").display());
+        let bind = settings.bind;
+        let production = !settings.development;
+        let static_dir = settings.development_web_dir.map(PathBuf::from);
         anyhow::ensure!(
-            data_dir.is_absolute() && database_path.parent() == Some(data_dir.as_path()),
-            "database must be a direct child of the absolute data_dir"
+            static_dir.is_none()
+                || (!production && crate::release_contract::SOURCE_REVISION == "unbound"),
+            "directory Web assets require an unbound development build"
         );
-        let credential_key = decode_key(
-            settings
-                .credential_key
-                .as_deref()
-                .context("credential_key is required")?,
-        )?;
-        let bind: SocketAddr = settings
-            .bind
-            .parse()
-            .context("bind must be a socket address")?;
-        let production = settings.production;
-        let static_dir =
-            development_static_dir(settings.development_web_dir.as_deref(), !production)?;
         validate_bind(bind, production)?;
-
-        let bootstrap_admin_username =
-            xcss::admin_auth::normalize_administrator_username(&settings.bootstrap_admin_username)?;
 
         Ok(Self {
             bind,
             database_url,
             production,
-            secrets: SecretBox::new(settings.credential_key_id, credential_key)?,
-            bootstrap_admin_username,
-            bootstrap_admin_password: settings.bootstrap_admin_password,
+            log_level: settings.log_level,
+            trusted_proxies: xcss::client_ip::TrustedProxies::parse(&settings.trusted_proxies)?,
             static_dir,
             data_dir,
             sources: loaded.sources,
@@ -117,39 +97,28 @@ impl ServeConfig {
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Settings {
-    database_url: Option<String>,
-    data_dir: Option<PathBuf>,
-    bind: String,
-    production: bool,
-    credential_key: Option<String>,
-    credential_key_id: String,
-    bootstrap_admin_username: String,
-    bootstrap_admin_password: Option<String>,
+    data_dir: PathBuf,
+    bind: SocketAddr,
+    development: bool,
+    log_level: String,
+    trusted_proxies: Vec<String>,
     development_web_dir: Option<String>,
 }
 
 impl Default for Settings {
     fn default() -> Self {
         Self {
-            database_url: None,
-            data_dir: None,
-            bind: "127.0.0.1:18104".into(),
-            production: true,
-            credential_key: None,
-            credential_key_id: "primary".into(),
-            bootstrap_admin_username: "admin".into(),
-            bootstrap_admin_password: None,
+            data_dir: PathBuf::from("/var/lib/isarmg/xscs"),
+            bind: "127.0.0.1:18104".parse().expect("valid default bind"),
+            development: false,
+            log_level: "info".into(),
+            trusted_proxies: Vec::new(),
             development_web_dir: None,
         }
     }
 }
 
-const ENVIRONMENT: [EnvMapping<'static>; 9] = [
-    EnvMapping {
-        variable: "XSCS_DATABASE_URL",
-        path: "/database_url",
-        kind: EnvValueKind::String,
-    },
+const ENVIRONMENT: [EnvMapping<'static>; 6] = [
     EnvMapping {
         variable: "XSCS_DATA_DIR",
         path: "/data_dir",
@@ -161,32 +130,22 @@ const ENVIRONMENT: [EnvMapping<'static>; 9] = [
         kind: EnvValueKind::String,
     },
     EnvMapping {
-        variable: "XSCS_PRODUCTION",
-        path: "/production",
+        variable: "XSCS_DEVELOPMENT",
+        path: "/development",
         kind: EnvValueKind::Boolean,
     },
     EnvMapping {
-        variable: "XSCS_CREDENTIAL_KEY",
-        path: "/credential_key",
+        variable: "XSCS_TRUSTED_PROXIES",
+        path: "/trusted_proxies",
+        kind: EnvValueKind::Json,
+    },
+    EnvMapping {
+        variable: "XSCS_LOG_LEVEL",
+        path: "/log_level",
         kind: EnvValueKind::String,
     },
     EnvMapping {
-        variable: "XSCS_CREDENTIAL_KEY_ID",
-        path: "/credential_key_id",
-        kind: EnvValueKind::String,
-    },
-    EnvMapping {
-        variable: "XSCS_BOOTSTRAP_ADMIN_USERNAME",
-        path: "/bootstrap_admin_username",
-        kind: EnvValueKind::String,
-    },
-    EnvMapping {
-        variable: "XSCS_BOOTSTRAP_ADMIN_PASSWORD",
-        path: "/bootstrap_admin_password",
-        kind: EnvValueKind::String,
-    },
-    EnvMapping {
-        variable: "XCSS_DEV_WEB_DIR",
+        variable: "XSCS_DEV_WEB_DIR",
         path: "/development_web_dir",
         kind: EnvValueKind::String,
     },
@@ -237,16 +196,16 @@ fn validate_static_dir(value: &str, production: bool) -> anyhow::Result<PathBuf>
 fn decode_key(value: &str) -> anyhow::Result<[u8; 32]> {
     let decoded = STANDARD
         .decode(value.trim())
-        .context("XSCS_CREDENTIAL_KEY must be base64")?;
+        .context("credential key must be base64")?;
     decoded
         .try_into()
-        .map_err(|_| anyhow::anyhow!("XSCS_CREDENTIAL_KEY must decode to exactly 32 bytes"))
+        .map_err(|_| anyhow::anyhow!("credential key must decode to exactly 32 bytes"))
 }
 
 fn validate_bind(bind: SocketAddr, production: bool) -> anyhow::Result<()> {
     anyhow::ensure!(
         production || bind.ip().is_loopback(),
-        "XSCS_PRODUCTION=false requires a loopback XSCS_BIND"
+        "XSCS_DEVELOPMENT=true requires a loopback XSCS_BIND"
     );
     Ok(())
 }
@@ -257,7 +216,10 @@ mod tests {
 
     #[test]
     fn production_accepts_configured_backend_addresses_and_preserves_the_default() {
-        assert_eq!(Settings::default().bind, "127.0.0.1:18104");
+        assert_eq!(
+            Settings::default().bind,
+            "127.0.0.1:18104".parse::<SocketAddr>().unwrap()
+        );
         for bind in ["10.20.0.12:18104", "0.0.0.0:18104", "[::]:18104"] {
             let file = serde_json::to_vec(&serde_json::json!({"bind": bind})).unwrap();
             let loaded = xcss::config::resolve_validated(
@@ -268,8 +230,8 @@ mod tests {
                 validate_intrinsic,
             )
             .unwrap();
-            assert_eq!(loaded.value.bind, bind);
-            validate_bind(loaded.value.bind.parse().unwrap(), loaded.value.production).unwrap();
+            assert_eq!(loaded.value.bind, bind.parse::<SocketAddr>().unwrap());
+            validate_bind(loaded.value.bind, !loaded.value.development).unwrap();
         }
     }
 
@@ -340,30 +302,20 @@ fn validate_intrinsic(
 ) -> Result<(), xcss::config::ConfigError> {
     let invalid =
         |path| xcss::config::ConfigError::new(xcss::config::Reason::InvalidValue, path, source);
-    settings
-        .bind
-        .parse::<SocketAddr>()
-        .map_err(|_| invalid("/bind"))?;
-    if let Some(key) = &settings.credential_key {
-        decode_key(key).map_err(|_| invalid("/credential_key"))?;
-    }
-    SecretBox::new(settings.credential_key_id.clone(), [0; 32])
-        .map_err(|_| invalid("/credential_key_id"))?;
-    xcss::admin_auth::normalize_administrator_username(&settings.bootstrap_admin_username)
-        .map_err(|_| invalid("/bootstrap_admin_username"))?;
-    if let Some(password) = &settings.bootstrap_admin_password {
-        xcss::admin_auth::validate_password(password)
-            .map_err(|_| invalid("/bootstrap_admin_password"))?;
-    }
-    if settings
-        .data_dir
-        .as_ref()
-        .is_some_and(|path| !path.is_absolute())
+    if !settings.data_dir.is_absolute()
+        || settings.data_dir.components().any(|part| {
+            matches!(
+                part,
+                std::path::Component::ParentDir | std::path::Component::CurDir
+            )
+        })
     {
         return Err(invalid("/data_dir"));
     }
-    if let Some(url) = &settings.database_url {
-        crate::database_schema::database_path(url).map_err(|_| invalid("/database_url"))?;
+    xcss::client_ip::TrustedProxies::parse(&settings.trusted_proxies)
+        .map_err(|_| invalid("/trusted_proxies"))?;
+    if !["error", "warn", "info", "debug", "trace", "off"].contains(&settings.log_level.as_str()) {
+        return Err(invalid("/log_level"));
     }
     if settings
         .development_web_dir
@@ -381,8 +333,7 @@ mod precedence_contract_tests {
     #[test]
     fn a_higher_priority_override_cannot_hide_an_invalid_file_value() {
         let file =
-            serde_json::to_vec(&serde_json::json!({"credential_key":"private-invalid-secret"}))
-                .unwrap();
+            serde_json::to_vec(&serde_json::json!({"log_level":"private-invalid-secret"})).unwrap();
         let error = xcss::config::resolve_validated(
             &Settings::default(),
             Some(&file),
@@ -392,7 +343,7 @@ mod precedence_contract_tests {
         )
         .err()
         .expect("invalid lower layer must fail");
-        assert_eq!(error.path, "/credential_key");
+        assert_eq!(error.path, "/log_level");
         assert_eq!(error.source, ConfigSource::File);
         assert!(
             !serde_json::to_string(&error.envelope())
@@ -411,4 +362,146 @@ pub fn normalize_config_path(path: &Path) -> anyhow::Result<PathBuf> {
         "config path cannot contain parent traversal"
     );
     Ok(std::path::absolute(path)?)
+}
+
+/// An absent implicit file is optional; explicit paths and all other errors fail closed.
+fn default_config_path(explicit: Option<&Path>) -> std::io::Result<Option<PathBuf>> {
+    if let Some(path) = explicit {
+        return Ok(Some(path.to_owned()));
+    }
+    let path = PathBuf::from("/etc/isarmg/xscs/config.json");
+    match std::fs::symlink_metadata(&path) {
+        Ok(_) => Ok(Some(path)),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error),
+    }
+}
+
+#[cfg(test)]
+mod deployment_defaults_tests {
+    use super::*;
+    #[test]
+    fn production_is_default_and_old_configuration_names_are_rejected() {
+        assert!(!Settings::default().development);
+        assert_eq!(
+            Settings::default().data_dir,
+            PathBuf::from("/var/lib/isarmg/xscs")
+        );
+        let mut json = serde_json::to_value(Settings::default()).unwrap();
+        json["production"] = serde_json::json!(true);
+        assert!(serde_json::from_value::<Settings>(json).is_err());
+    }
+    #[test]
+    fn environment_mappings_are_product_specific_and_have_no_bootstrap_secrets() {
+        assert!(
+            ENVIRONMENT
+                .iter()
+                .all(|mapping| mapping.variable.starts_with("XSCS_"))
+        );
+        assert!(
+            !ENVIRONMENT
+                .iter()
+                .any(|mapping| mapping.variable.contains("BOOTSTRAP")
+                    || mapping.variable.contains("PRODUCTION"))
+        );
+    }
+    #[test]
+    fn explicit_missing_config_is_not_silently_dropped() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("missing.json");
+        assert_eq!(
+            default_config_path(Some(&path)).unwrap(),
+            Some(path.clone())
+        );
+        assert!(xcss::config::read_private_file(&path).is_err());
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SecretsDocument {
+    version: u32,
+    credential_key_id: String,
+    credential_key: String,
+}
+impl SecretsDocument {
+    fn secret_box(self) -> anyhow::Result<SecretBox> {
+        anyhow::ensure!(
+            self.version == 1 && self.credential_key_id == "primary",
+            "invalid secrets document identity"
+        );
+        let key = decode_key(&self.credential_key)?;
+        anyhow::ensure!(
+            STANDARD.encode(key) == self.credential_key,
+            "credential key must use canonical base64"
+        );
+        SecretBox::new(self.credential_key_id, key)
+    }
+}
+impl ServeConfig {
+    pub fn initialize_secrets(&self) -> anyhow::Result<SecretBox> {
+        let document = SecretsDocument {
+            version: 1,
+            credential_key_id: "primary".into(),
+            credential_key: STANDARD.encode(xcss::server_secrets::generate_key()?),
+        };
+        xcss::server_secrets::initialize(&self.data_dir, &document)?;
+        document.secret_box()
+    }
+    pub fn load_secrets(&self) -> anyhow::Result<SecretBox> {
+        xcss::server_secrets::load::<SecretsDocument>(&self.data_dir)?.secret_box()
+    }
+    pub fn validate_runtime_assets(&self) -> anyhow::Result<()> {
+        development_static_dir(
+            self.static_dir.as_ref().and_then(|p| p.to_str()),
+            !self.production,
+        )?;
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod secrets_contract_tests {
+    use super::*;
+    #[test]
+    fn private_document_requires_current_identity_and_canonical_key() {
+        for (version, id, key) in [
+            (2, "primary", STANDARD.encode([7; 32])),
+            (1, "other", STANDARD.encode([7; 32])),
+            (1, "primary", STANDARD.encode([7; 31])),
+            (1, "primary", format!(" {}", STANDARD.encode([7; 32]))),
+        ] {
+            assert!(
+                SecretsDocument {
+                    version,
+                    credential_key_id: id.into(),
+                    credential_key: key
+                }
+                .secret_box()
+                .is_err()
+            );
+        }
+        assert!(
+            SecretsDocument {
+                version: 1,
+                credential_key_id: "primary".into(),
+                credential_key: STANDARD.encode([7; 32])
+            }
+            .secret_box()
+            .is_ok()
+        );
+    }
+    #[test]
+    fn configuration_rejects_state_secrets_and_database_path_inputs() {
+        for field in [
+            "credential_key",
+            "credential_key_id",
+            "database_url",
+            "bootstrap_admin_password",
+        ] {
+            let mut value = serde_json::to_value(Settings::default()).unwrap();
+            value[field] = serde_json::json!("not-a-setting");
+            assert!(serde_json::from_value::<Settings>(value).is_err());
+        }
+    }
 }

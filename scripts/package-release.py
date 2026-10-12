@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build and publish one immutable, source-bound xscs 1.0.3 archive."""
+"""Build and publish one immutable, source-bound xscs archive."""
 
 from __future__ import annotations
 
@@ -23,7 +23,7 @@ from typing import NoReturn
 
 
 APPLICATION = "xscs"
-VERSION = "1.0.3"
+VERSION = __import__("tomllib").loads((Path(__file__).resolve().parents[1] / "Cargo.toml").read_text())["workspace"]["package"]["version"]
 TARGET = "x86_64-unknown-linux-gnu"
 TAG = f"v{VERSION}"
 
@@ -143,30 +143,26 @@ def relocated_smoke(extracted: Path, temporary: Path) -> None:
     environment = os.environ.copy()
     environment.update(
         {
-            "XSCS_DATABASE_URL": f"sqlite://{state / 'app.db'}",
-            "XSCS_CREDENTIAL_KEY": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+            "XSCS_DATA_DIR": os.fspath(state),
             "XSCS_BIND": f"127.0.0.1:{port}",
-            "XSCS_PRODUCTION": "false",
-            "XSCS_BOOTSTRAP_ADMIN_USERNAME": "release-smoke",
-            "XSCS_BOOTSTRAP_ADMIN_PASSWORD": "release-smoke-password",
+            "XSCS_DEVELOPMENT": "true",
         }
     )
-    subprocess.run([os.fspath(extracted / "bin/xscs"), "init", "--json"],
-        cwd=Path("/"), env=environment, stdin=subprocess.DEVNULL,
+    subprocess.run([os.fspath(extracted / "bin/xscs"), "init", "--username", "release-smoke", "--json"],
+        cwd=Path("/"), env=environment, input=b"release-smoke-password\n",
         stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
     installation = extracted.parent.parent
     installation.chmod(0o755)
     extracted.parent.chmod(0o755)
-    pointer = installation / "current"
-    pointer.symlink_to(extracted)
+    deployed = installation / "bin"
+    deployed.mkdir()
+    shutil.copy2(extracted / "bin/xscs", deployed / "xscs")
     log_path = temporary / "relocated-smoke.log"
     with log_path.open("wb") as log:
         process = subprocess.Popen(
             [
-                os.fspath(extracted / "bin/xscs"),
+                os.fspath(deployed / "xscs"),
                 "run",
-                "--release-root",
-                os.fspath(pointer),
             ],
             cwd=Path("/"),
             env=environment,
@@ -280,7 +276,7 @@ def main() -> None:
         releases = temporary / "releases"
         root = releases / VERSION
         web_stage = temporary / "web"
-        for directory in [root / "bin", root / "systemd", web_stage]:
+        for directory in [root / "bin", root / "systemd", root / "config", web_stage]:
             directory.mkdir(parents=True, exist_ok=False)
 
         run(["npm", "ci"], cwd=source / "web")
@@ -289,10 +285,10 @@ def main() -> None:
         run([os.fspath(builder), "--config", os.fspath(build_config), "--mode", "release", "--web-only", "--no-install", "--dist", os.fspath(web_stage)], cwd=source)
 
         cargo_target = Path(
-            os.environ.get("SUNSHINE_RELEASE_CARGO_TARGET_DIR", source / "target")
+            os.environ.get("XSCS_RELEASE_CARGO_TARGET_DIR", source / "target")
         )
         if not cargo_target.is_absolute():
-            fail("SUNSHINE_RELEASE_CARGO_TARGET_DIR must be absolute")
+            fail("XSCS_RELEASE_CARGO_TARGET_DIR must be absolute")
         build_environment = os.environ.copy()
         build_environment.update(
             {
@@ -312,12 +308,14 @@ def main() -> None:
             root / "systemd/xscs.service",
         )
         shutil.copyfile(source / "docs/operations.md", root / "README.md")
+        shutil.copyfile(source / "deploy/install.sh", root / "install.sh")
+        shutil.copyfile(source / "config/config.json.example", root / "config/config.json.example")
         inventory = run([os.fspath(built_binary), "web-assets"], cwd=source, capture=True).stdout
         if not inventory.endswith(b"\n"):
             fail("compiled Web inventory must be one newline-terminated JSON document")
         (root / "web-assets.json").write_bytes(inventory[:-1])
 
-        executable_paths = [root / "bin/xscs"]
+        executable_paths = [root / "bin/xscs", root / "install.sh"]
         for path in executable_paths:
             path.chmod(0o555)
         for path in root.rglob("*"):

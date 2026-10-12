@@ -4,7 +4,7 @@ product_id = "xscs"
 [foundation]
 platform_generation = 1
 version = "1.0.11"
-git_rev = "dda7b25f34ebe717587b6c7083d3664707f0a31f"
+git_rev = "53c24a2bc026b3c09e073f18cd26b01d15d6d354"
 
 [[components]]
 id = "server"
