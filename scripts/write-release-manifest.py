@@ -15,7 +15,7 @@ from typing import NoReturn
 
 
 APPLICATION = "xscs"
-VERSION = "1.0.2"
+VERSION = "1.0.3"
 TARGET = "x86_64-unknown-linux-gnu"
 CONTRACT_FORMAT = "xscs-release-v1"
 MANIFEST_FORMAT = "xscs-files-v1"
@@ -89,16 +89,16 @@ def read_identity(binary: Path) -> tuple[dict[str, object], bytes]:
         or not isinstance(identity["source_revision"], str)
         or FULL_REVISION.fullmatch(identity["source_revision"]) is None
     ):
-        fail("release binary is not the exact bound xscs 1.0.2 identity")
+        fail("release binary is not the exact bound xscs 1.0.3 identity")
     return identity, encoded
 
 
 def main() -> None:
     if len(sys.argv) != 2:
-        fail("usage: write-release-manifest.py /absolute/releases/1.0.2")
+        fail("usage: write-release-manifest.py /absolute/releases/1.0.3")
     root = Path(sys.argv[1])
     if not root.is_absolute() or root.name != VERSION or root.parent.name != "releases":
-        fail("root must be an absolute releases/1.0.2 directory")
+        fail("root must be an absolute releases/1.0.3 directory")
     if root.resolve(strict=True) != root:
         fail("release root must not traverse symbolic links")
     root_stat = root.lstat()

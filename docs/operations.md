@@ -1,4 +1,4 @@
-# xscs 1.0.2 发行包部署手册
+# xscs 1.0.3 发行包部署手册
 
 ## 安装与初始化
 
@@ -9,17 +9,17 @@
 
 ```sh
 set -eu
-sha256sum --check --strict xscs-1.0.2-x86_64-unknown-linux-gnu.tar.gz.sha256
+sha256sum --check --strict xscs-1.0.3-x86_64-unknown-linux-gnu.tar.gz.sha256
 sudo test ! -e /opt/isarmg/xscs
 sudo test ! -e /etc/isarmg/xscs.env
 sudo test ! -e /etc/systemd/system/xscs.service
 sudo test ! -e /var/lib/isarmg/xscs
 sudo install -d -m 0755 -o root -g root /opt/isarmg /opt/isarmg/xscs /opt/isarmg/xscs/releases
-sudo tar -xzf xscs-1.0.2-x86_64-unknown-linux-gnu.tar.gz \
+sudo tar -xzf xscs-1.0.3-x86_64-unknown-linux-gnu.tar.gz \
   -C /opt/isarmg/xscs/releases --same-permissions --delay-directory-restore
-sudo chown -R root:root /opt/isarmg/xscs/releases/1.0.2
-sudo /opt/isarmg/xscs/releases/1.0.2/bin/xscs \
-  verify-release --root /opt/isarmg/xscs/releases/1.0.2
+sudo chown -R root:root /opt/isarmg/xscs/releases/1.0.3
+sudo /opt/isarmg/xscs/releases/1.0.3/bin/xscs \
+  verify-release --root /opt/isarmg/xscs/releases/1.0.3
 sudo groupadd --system xscs
 sudo useradd --system --gid xscs --home-dir /var/lib/isarmg/xscs \
   --no-create-home --shell /usr/sbin/nologin xscs
@@ -45,10 +45,10 @@ XSCS_CREDENTIAL_KEY_ID=primary
 先初始化，再启动服务：
 
 ```sh
-sudo ln -sT /opt/isarmg/xscs/releases/1.0.2 /opt/isarmg/xscs/current
+sudo ln -sT /opt/isarmg/xscs/releases/1.0.3 /opt/isarmg/xscs/current
 sudo systemd-run --wait --collect -p User=xscs -p Group=xscs \
   -p EnvironmentFile=/etc/isarmg/xscs.env \
-  /opt/isarmg/xscs/releases/1.0.2/bin/xscs init
+  /opt/isarmg/xscs/releases/1.0.3/bin/xscs init
 sudo install -m 0644 -o root -g root \
   /opt/isarmg/xscs/current/systemd/xscs.service /etc/systemd/system/xscs.service
 sudo systemctl daemon-reload
@@ -93,20 +93,20 @@ curl --fail http://127.0.0.1:18104/readyz
 
 | 路径 | 用途 |
 |---|---|
-| `/opt/isarmg/xscs/releases/1.0.2/` | root 所有的只读发行目录 |
+| `/opt/isarmg/xscs/releases/1.0.3/` | root 所有的只读发行目录 |
 | `/opt/isarmg/xscs/current` | 指向该版本的绝对链接 |
 | `/etc/isarmg/xscs.env` | root 0600 配置，由 systemd 加载 |
 | `/var/lib/isarmg/xscs/db/xscs.sqlite3` | 服务账号所有的当前数据库 |
 | `/var/lib/isarmg/xscs/db/logs/` | 私有轮转运行日志 |
 
-归档的顶层是 `1.0.2/`，包含 `bin/xscs`、`systemd/xscs.service`、`web-assets.json`、`README.md` 和 `RELEASE-MANIFEST.json`。管理页面已内嵌到二进制。修改运行参数使用环境文件；发行目录保留下载时的内容与权限，供启动校验使用。
+归档的顶层是 `1.0.3/`，包含 `bin/xscs`、`systemd/xscs.service`、`web-assets.json`、`README.md` 和 `RELEASE-MANIFEST.json`。管理页面已内嵌到二进制。修改运行参数使用环境文件；发行目录保留下载时的内容与权限，供启动校验使用。
 
 `identity` 输出产品、版本、源码提交和结构身份；`verify-release` 核对完整文件树。SHA-256 用于核对下载完整性，仍需从可信发布页取得归档及校验文件。
 
 | 身份字段 | 当前值 |
 |---|---|
 | `application` | `xscs` |
-| `version` | `1.0.2` |
+| `version` | `1.0.3` |
 | `schema_revision` | `1` |
 | `target` | `x86_64-unknown-linux-gnu` |
 

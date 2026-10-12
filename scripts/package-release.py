@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build and publish one immutable, source-bound xscs 1.0.2 archive."""
+"""Build and publish one immutable, source-bound xscs 1.0.3 archive."""
 
 from __future__ import annotations
 
@@ -23,7 +23,7 @@ from typing import NoReturn
 
 
 APPLICATION = "xscs"
-VERSION = "1.0.2"
+VERSION = "1.0.3"
 TARGET = "x86_64-unknown-linux-gnu"
 TAG = f"v{VERSION}"
 

@@ -35,6 +35,7 @@ export function ClientWorkspace({device,fieldDefinitions,refreshSignal,configRef
  const[configLoading,setConfigLoading]=useState(false);const[configFailure,setConfigFailure]=useState<WorkspaceFailure|null>(null);
  const[configActivity,setConfigActivity]=useState<ConfigurationActivity|null>(null);
  const configurationGeneration=useRef(0);
+ const configurationRetry=useRef<{body:string;key:string}|null>(null);
  const configReadKey=useRef<{refresh:number;key:string}|null>(null);
  const idempotencyKeys=useRef(new Map<string,string>());const operationRevision=useRef(0);const calendarReady=useRef(false);
  const[configCategory,setConfigCategory]=useState<"overview"|"preview"|"moonlight"|ConfigCategory|SunshineManagementCategory>("overview");
@@ -47,7 +48,7 @@ export function ClientWorkspace({device,fieldDefinitions,refreshSignal,configRef
  useEffect(()=>{
   // Only page entry and an explicit header/browser refresh replace the editor snapshot.
   // Status polling and completed writes use a separate refresh signal.
-  configurationGeneration.current+=1;
+  configurationGeneration.current+=1;configurationRetry.current=null;
   if(page!=="details"){configReadKey.current=null;return}
   const controller=new AbortController();let active=true;let timer:number|undefined;
   setBaseline(null);setDraft({});setRemove([]);setSubmittedConfiguration(null);setConfigFailure(null);setConfigActivity(null);
@@ -89,11 +90,16 @@ export function ClientWorkspace({device,fieldDefinitions,refreshSignal,configRef
   const readOnly=isReadCommand(command);
   if(!readOnly&&blocked)return false;
   const generation=configurationGeneration.current;
-  const body=JSON.stringify(command);const key=idempotencyKeys.current.get(body)??crypto.randomUUID();idempotencyKeys.current.set(body,key);
+  const body=JSON.stringify(command);
+  // A retry belongs to the unchanged editor intent, not every future save with the same values.
+  // Other commands keep their existing retry identities, including uncertain restarts.
+  const configurationSave=command.kind==="save_config";
+  const key=(configurationSave?(configurationRetry.current?.body===body?configurationRetry.current.key:undefined):idempotencyKeys.current.get(body))??crypto.randomUUID();
+  if(configurationSave)configurationRetry.current={body,key};else idempotencyKeys.current.set(body,key);
   return perform(async()=>{
    const operation=await client.request(base+"/tasks",isOperation,{method:"POST",headers:{"Idempotency-Key":key},body});
    onAccepted?.(operation);
-   idempotencyKeys.current.delete(body);operationRevision.current+=1;setOperations(values=>[operation,...values.filter(value=>value.operation_id!==operation.operation_id)].slice(0,50));
+   if(configurationSave){if(configurationRetry.current?.key===key)configurationRetry.current=null}else idempotencyKeys.current.delete(body);operationRevision.current+=1;setOperations(values=>[operation,...values.filter(value=>value.operation_id!==operation.operation_id)].slice(0,50));
    if(generation===configurationGeneration.current){
     if(isConfigurationCommand(command))setConfigActivity({command:command.kind,operation});
     if(command.kind==="save_config")setSubmittedConfiguration({operation,draft:{...draft},remove:[...remove]});
@@ -144,8 +150,11 @@ export function ClientWorkspace({device,fieldDefinitions,refreshSignal,configRef
   if(value==="")return field.key in baseline.fields;
   return field.kind==="integer"?String(Number(value))!==baseline.fields[field.key]:value!==baseline.fields[field.key];
  }):[];
+ function changeConfiguration(key:string,value:string){if((draft[key]??"")===value)return;configurationRetry.current=null;setDraft(values=>({...values,[key]:value}))}
+ function resetConfiguration(key:string,checked:boolean){if(remove.includes(key)===checked)return;configurationRetry.current=null;setRemove(values=>checked?[...values,key]:values.filter(value=>value!==key))}
  function undoConfiguration(key:string){
   if(!baseline||busy||awaitingConfigurationSave)return;
+  configurationRetry.current=null;
   setDraft(values=>{const restored={...values};if(key in baseline.fields)restored[key]=baseline.fields[key];else delete restored[key];return restored});
   setRemove(values=>values.filter(value=>value!==key));
  }
@@ -180,8 +189,8 @@ export function ClientWorkspace({device,fieldDefinitions,refreshSignal,configRef
  const helpId=field.prerequisite?`${inputId}-help`:undefined;
  return <div key={field.key} className="sunshine-config-field">
  <div className="sunshine-config-label"><label id={`${inputId}-label`} htmlFor={inputId}>{field.label}</label>{field.prerequisite&&<small id={helpId}>{prerequisiteLabel(field.prerequisite)}</small>}</div>
- {field.inputKind==="select"?<ConfigSelect id={inputId} describedBy={helpId} value={draft[field.key]??""} disabled={busy||remove.includes(field.key)} options={[{value:"",label:t("未显式设置", "Not explicitly set")},...field.options.map(value=>({value,label:configValueLabel(value)}))]} onChange={value=>setDraft(values=>({...values,[field.key]:value}))}/>:<TextField id={inputId} aria-describedby={helpId} type={field.inputKind==="integer"?"number":"text"} min={field.minimum} max={field.maximum} step={1} maxLength={field.maximum_length} pattern={field.inputKind==="text"?".{1,32}":undefined} value={draft[field.key]??""} disabled={busy||remove.includes(field.key)} onChange={event=>{const value=event.target.value;setDraft(values=>({...values,[field.key]:value}))}}/>}
- <label className="sunshine-config-reset" title={t("恢复默认（删除显式设置）", "Restore default (remove explicit setting)")}><input type="checkbox" aria-label={`${field.label}：${t("恢复默认（删除显式设置）", "Restore default (remove explicit setting)")}`} checked={remove.includes(field.key)} disabled={busy||!(field.key in baseline.fields)} onChange={event=>{const checked=event.target.checked;setRemove(values=>checked?[...values,field.key]:values.filter(key=>key!==field.key))}}/>{t("恢复默认", "Restore default")}</label>
+ {field.inputKind==="select"?<ConfigSelect id={inputId} describedBy={helpId} value={draft[field.key]??""} disabled={busy||remove.includes(field.key)} options={[{value:"",label:t("未显式设置", "Not explicitly set")},...field.options.map(value=>({value,label:configValueLabel(value)}))]} onChange={value=>changeConfiguration(field.key,value)}/>:<TextField id={inputId} aria-describedby={helpId} type={field.inputKind==="integer"?"number":"text"} min={field.minimum} max={field.maximum} step={1} maxLength={field.maximum_length} pattern={field.inputKind==="text"?".{1,32}":undefined} value={draft[field.key]??""} disabled={busy||remove.includes(field.key)} onChange={event=>changeConfiguration(field.key,event.target.value)}/>}
+ <label className="sunshine-config-reset" title={t("恢复默认（删除显式设置）", "Restore default (remove explicit setting)")}><input type="checkbox" aria-label={`${field.label}：${t("恢复默认（删除显式设置）", "Restore default (remove explicit setting)")}`} checked={remove.includes(field.key)} disabled={busy||!(field.key in baseline.fields)} onChange={event=>resetConfiguration(field.key,event.target.checked)}/>{t("恢复默认", "Restore default")}</label>
  </div>})}
  </section>)}
 
