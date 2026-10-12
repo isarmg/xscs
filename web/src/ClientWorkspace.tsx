@@ -23,6 +23,15 @@ function logPageRequest(signal:AbortSignal):RequestInit&{maxResponseBytes:number
 }
 type WorkspaceFailure={message:string;requestId?:string};
 type SubmittedConfiguration={operation:Operation;draft:Record<string,string>;remove:string[]};
+function newerOperation(current:Operation|undefined,incoming:Operation):Operation{
+ if(!current)return incoming;
+ return incoming.updated_at_micros>current.updated_at_micros||(incoming.updated_at_micros===current.updated_at_micros&&(incoming.reconciliation_observed_at_micros??-1)>=(current.reconciliation_observed_at_micros??-1))?incoming:current;
+}
+function withSaveReceipts(operations:Operation[],receipts:Iterable<Operation>):Operation[]{
+ const values=new Map(operations.map(operation=>[operation.operation_id,operation]));
+ for(const receipt of receipts)values.set(receipt.operation_id,newerOperation(values.get(receipt.operation_id),receipt));
+ return [...values.values()];
+}
 export function ClientWorkspace({device,fieldDefinitions,refreshSignal,configRefreshSignal,changed,removed,ticket:initialTicket,page}:{device:DeviceInfo;fieldDefinitions:ConfigFieldDefinition[]|null;refreshSignal:number;configRefreshSignal:number;changed():void;removed():void;ticket:Ticket|null;page:"details"|"logs"}){
  const{client,notify}=useAdminApplication();const[operations,setOperations]=useState<Operation[]>([]);
  const[blockingCount,setBlockingCount]=useState(0);const[summaryDevice,setSummaryDevice]=useState<string|null>(null);const[logOperations,setLogOperations]=useState<Operation[]>([]);const[logRange,setLogRange]=useState<CalendarDateRange|null>(null);const[loadedLogRange,setLoadedLogRange]=useState<CalendarDateRange|null>(null);const[logDraftValid,setLogDraftValid]=useState(false);const[calendarLoading,setCalendarLoading]=useState(false);const[calendarRefresh,setCalendarRefresh]=useState(0);const[logLoading,setLogLoading]=useState(false);const[logRefresh,setLogRefresh]=useState(0);const[logCursor,setLogCursor]=useState<string|null>(null);const[logNext,setLogNext]=useState<string|null>(null);const[logPrevious,setLogPrevious]=useState<string|null>(null);
@@ -36,6 +45,7 @@ export function ClientWorkspace({device,fieldDefinitions,refreshSignal,configRef
  const[configActivity,setConfigActivity]=useState<ConfigurationActivity|null>(null);
  const configurationGeneration=useRef(0);
  const configurationRetry=useRef<{body:string;key:string}|null>(null);
+ const saveReceipts=useRef(new Map<"save_config"|"save_application",Operation>());
  const configReadKey=useRef<{refresh:number;key:string}|null>(null);
  const idempotencyKeys=useRef(new Map<string,string>());const operationRevision=useRef(0);const calendarReady=useRef(false);
  const[configCategory,setConfigCategory]=useState<"overview"|"preview"|"moonlight"|ConfigCategory|SunshineManagementCategory>("overview");
@@ -48,7 +58,7 @@ export function ClientWorkspace({device,fieldDefinitions,refreshSignal,configRef
  useEffect(()=>{
   // Only page entry and an explicit header/browser refresh replace the editor snapshot.
   // Status polling and completed writes use a separate refresh signal.
-  configurationGeneration.current+=1;configurationRetry.current=null;
+  configurationGeneration.current+=1;configurationRetry.current=null;saveReceipts.current.delete("save_config");
   if(page!=="details"){configReadKey.current=null;return}
   const controller=new AbortController();let active=true;let timer:number|undefined;
   setBaseline(null);setDraft({});setRemove([]);setSubmittedConfiguration(null);setConfigFailure(null);setConfigActivity(null);
@@ -64,7 +74,7 @@ export function ClientWorkspace({device,fieldDefinitions,refreshSignal,configRef
    if(["pending","running"].includes(operation.state)){
     timer=window.setTimeout(()=>{void client.request(`${CURRENT_API_PREFIX}/sunshine/operations/${operation.operation_id}`,isOperation,{signal:controller.signal}).then(accept).catch(fail)},1000);return;
    }
-   operationRevision.current+=1;setOperations(values=>[operation,...values.filter(value=>value.operation_id!==operation.operation_id)].slice(0,50));
+   operationRevision.current+=1;setOperations(values=>withSaveReceipts([newerOperation(values.find(value=>value.operation_id===operation.operation_id),operation),...values.filter(value=>value.operation_id!==operation.operation_id)].slice(0,50),saveReceipts.current.values()));
    if(operation.state==="succeeded"&&operation.result?.kind==="config_read"&&isSnapshot(operation.result.snapshot)){
     const snapshot=operation.result.snapshot;setBaseline(snapshot);setDraft({...snapshot.fields});setRemove([]);setConfigLoading(false);
    }else fail(undefined);
@@ -78,8 +88,33 @@ export function ClientWorkspace({device,fieldDefinitions,refreshSignal,configRef
   setName(current=>current===previous?device.name:current);
  },[device.name]);
  useEffect(()=>{const controller=new AbortController();let active=true;void client.request(base+"/authorization",isClientAuthorization,{signal:controller.signal}).then(value=>{if(active){setAuthorization(value);setAuthorizationFailure(null)}}).catch(error=>{if(active)setAuthorizationFailure({message:t("无法读取实例密码", "Unable to load the instance password"),requestId:errorRequestId(error)})});return()=>{active=false;controller.abort()}},[base,client,refreshSignal]);
- useEffect(()=>{if(page!=="details")return;const controller=new AbortController();let active=true;let timer:number|undefined;setSummaryDevice(null);async function load(){const revision=operationRevision.current;try{const[values,summary]=await Promise.all([client.request(base+"/tasks?recent=50",isOperations,{signal:controller.signal}),client.request(base+"/tasks/summary",isOperationSummary,{signal:controller.signal})]);if(active&&revision===operationRevision.current){setOperations(values);setBlockingCount(summary.blocking_count);setSummaryDevice(device.id);setTaskFailure(null)}}catch(error){if(active){setSummaryDevice(null);setTaskFailure({message:t("任务状态暂时不可用", "Task status is temporarily unavailable"),requestId:errorRequestId(error)})}}finally{if(active)timer=window.setTimeout(load,2000)}}
- void load();return()=>{active=false;controller.abort();if(timer!==undefined)clearTimeout(timer)}},[base,client,device.id,refreshSignal,page]);
+ useEffect(()=>{if(page!=="details")return;const controller=new AbortController();let active=true;let timer:number|undefined;setSummaryDevice(null);
+  async function load(){
+   const revision=operationRevision.current;const generation=configurationGeneration.current;const tracked=[...saveReceipts.current.entries()];let readingReceipts=false;
+   const current=()=>active&&revision===operationRevision.current&&generation===configurationGeneration.current;
+   try{
+    const[values,summary]=await Promise.all([client.request(base+"/tasks?recent=50",isOperations,{signal:controller.signal}),client.request(base+"/tasks/summary",isOperationSummary,{signal:controller.signal})]);
+    if(!current())return;
+    // The history page is creation-ordered. A submitted save can leave it before its receipt arrives.
+    // Reuse this poll for at most the current configuration save and application save.
+    const receipts=await Promise.all(tracked.map(async([kind,previous])=>{
+     let receipt=values.find(value=>value.operation_id===previous.operation_id);
+     if(!receipt&&["pending","running","unknown"].includes(previous.state)){
+      readingReceipts=true;
+      receipt=await client.request(`${CURRENT_API_PREFIX}/sunshine/operations/${previous.operation_id}`,isOperation,{signal:controller.signal});
+     }
+     if(receipt&&(receipt.operation_id!==previous.operation_id||receipt.device_id!==device.id||receipt.action!==previous.action))throw new Error("Save operation receipt does not match");
+     return [kind,receipt?newerOperation(previous,receipt):previous] as const;
+    }));
+    if(!current())return;
+    for(const[kind,receipt]of receipts)if(saveReceipts.current.get(kind)?.operation_id===receipt.operation_id)saveReceipts.current.set(kind,newerOperation(saveReceipts.current.get(kind),receipt));
+    // Keep terminal receipts in their two bounded slots; a later page must not restore pending state.
+    setOperations(withSaveReceipts(values,saveReceipts.current.values()));setBlockingCount(summary.blocking_count);setSummaryDevice(device.id);setTaskFailure(null);
+   }catch(error){if(current()){setSummaryDevice(null);setTaskFailure({message:readingReceipts?t("保存任务回执暂时不可用，草稿已保留。请稍后重试或检查日志。", "The save receipt is temporarily unavailable. Your draft is preserved. Try again shortly or check Logs."):t("任务状态暂时不可用", "Task status is temporarily unavailable"),requestId:errorRequestId(error)})}}
+   finally{if(active)timer=window.setTimeout(load,2000)}
+  }
+  void load();return()=>{active=false;controller.abort();if(timer!==undefined)clearTimeout(timer)}
+ },[base,client,device.id,refreshSignal,page]);
  useEffect(()=>{if(page!=="logs")return;const controller=new AbortController();let active=true;calendarReady.current=false;setLogCursor(null);setLogNext(null);setLogPrevious(null);setLogOperations([]);setLogRange(null);setLoadedLogRange(null);setLogLoading(false);setCalendarLoading(true);setTaskFailure(null);void client.request(base+"/tasks/calendar",isTaskCalendar,{signal:controller.signal}).then(value=>{if(active){calendarReady.current=true;setLogRange({start:value.today,end:value.today})}}).catch(error=>{if(active)setTaskFailure({message:t("无法读取服务器当天日期", "Could not read the server's current date"),requestId:errorRequestId(error)})}).finally(()=>{if(active)setCalendarLoading(false)});return()=>{active=false;calendarReady.current=false;controller.abort()}},[base,client,page,calendarRefresh]);
  useEffect(()=>{if(page!=="logs"||!calendarReady.current||logRange===null)return;setTaskFailure(null);const controller=new AbortController();let active=true;setLogLoading(true);const query=logRange.start===logRange.end?new URLSearchParams({date:logRange.start}):new URLSearchParams({start_date:logRange.start,end_date:logRange.end});if(logCursor!==null)query.set("cursor",logCursor);setLogOperations([]);setLoadedLogRange(null);setLogNext(null);setLogPrevious(null);void client.request(base+"/tasks?"+query,isOperationPage,logPageRequest(controller.signal)).then(values=>{if(active){setLogOperations(values.operations);setLogNext(values.next_cursor);setLogPrevious(values.previous_cursor);setLoadedLogRange(logRange);setTaskFailure(null)}}).catch(error=>{if(active)setTaskFailure({message:t("日志暂时不可用", "Logs are temporarily unavailable"),requestId:errorRequestId(error)})}).finally(()=>{if(active)setLogLoading(false)});return()=>{active=false;controller.abort()}},[base,client,refreshSignal,page,logRange,logRefresh,logCursor]);
  async function perform(action:()=>Promise<void>,after:()=>void=changed,failureMessage?:string):Promise<boolean>{if(busy)return false;setBusy(true);setActionFailure(null);try{await action();after();return true}catch(error){setActionFailure({message:currentErrorEnvelope(error)?.code==="history_capacity_exhausted"?t("任务历史容量已满，新任务未接受；已有任务仍可查询。", "Task history capacity is full. The new task was not accepted; existing tasks remain available."):currentErrorEnvelope(error)?.code==="conflict"?t("配置或设备状态发生冲突，请刷新后核对。", "Configuration or device state conflict. Refresh and review the latest state."):failureMessage??t("操作未能确认，请检查日志，勿直接重复重启。", "The operation could not be confirmed. Check the logs; do not blindly repeat a restart."),requestId:errorRequestId(error)});return false}finally{setBusy(false)}}
@@ -99,7 +134,10 @@ export function ClientWorkspace({device,fieldDefinitions,refreshSignal,configRef
   return perform(async()=>{
    const operation=await client.request(base+"/tasks",isOperation,{method:"POST",headers:{"Idempotency-Key":key},body});
    onAccepted?.(operation);
-   if(configurationSave){if(configurationRetry.current?.key===key)configurationRetry.current=null}else idempotencyKeys.current.delete(body);operationRevision.current+=1;setOperations(values=>[operation,...values.filter(value=>value.operation_id!==operation.operation_id)].slice(0,50));
+   if(command.kind==="save_application"||(command.kind==="save_config"&&generation===configurationGeneration.current)){
+    const previous=saveReceipts.current.get(command.kind);saveReceipts.current.set(command.kind,newerOperation(previous?.operation_id===operation.operation_id?previous:undefined,operation));
+   }
+   if(configurationSave){if(configurationRetry.current?.key===key)configurationRetry.current=null}else idempotencyKeys.current.delete(body);operationRevision.current+=1;setOperations(values=>withSaveReceipts([newerOperation(values.find(value=>value.operation_id===operation.operation_id),operation),...values.filter(value=>value.operation_id!==operation.operation_id)].slice(0,50),saveReceipts.current.values()));
    if(generation===configurationGeneration.current){
     if(isConfigurationCommand(command))setConfigActivity({command:command.kind,operation});
     if(command.kind==="save_config")setSubmittedConfiguration({operation,draft:{...draft},remove:[...remove]});
