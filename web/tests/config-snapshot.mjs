@@ -323,13 +323,26 @@ try {
 
       await applyName("Mismatched action draft");
       await expect.poll(() => saves().length).toBe(4);
-      completeWrite("succeeded", { kind: "config_saved", snapshot: { ...device.snapshot, effectiveness: "awaiting_restart" } }, "sunshine.config.read");
-      await expect(configurationStatus).toHaveText("配置操作回执不匹配，请检查日志核对结果。");
-      await expect(configurationStatus).toHaveAttribute("role", "alert");
+      // Receiving the POST is not yet proof that the browser has accepted its pending receipt.
+      await expect(configurationStatus).toHaveText("配置保存请求已排队，等待客户端执行。");
+      const mismatchedAction = completeWrite("succeeded", { kind: "config_saved", snapshot: { ...device.snapshot, effectiveness: "awaiting_restart" } }, "sunshine.config.read");
+      const taskStatusError = page.getByText("任务状态暂时不可用", { exact: true });
+      await expect(taskStatusError).toBeVisible();
+      await expect(configurationStatus).toHaveText("配置保存请求已排队，等待客户端执行。");
       await expect(name).toHaveValue("Mismatched action draft");
+      await expect(differenceRow("Sunshine 名称")).toContainText("Mismatched action draft");
       await expect(visibleSavedFeedback).toHaveCount(0);
-      await expect(apply).toBeEnabled();
+      await expect(apply).toBeDisabled();
       assert.equal(writes().length, 5, "a save result from the wrong action must not replay the operation");
+
+      // Only a later receipt with the original identity and matching saved values can settle this save.
+      mismatchedAction.action = "sunshine.config.save";
+      completeSave();
+      await expect(configurationStatus).toHaveText(savedStatus);
+      await expect(taskStatusError).toHaveCount(0);
+      await expect(name).toHaveValue("Mismatched action draft");
+      await noApplicableChanges();
+      assert.equal(writes().length, 5, "recovering a valid receipt must not submit another write");
 
       await applyName("Unconfirmed save draft");
       await expect.poll(() => saves().length).toBe(5);

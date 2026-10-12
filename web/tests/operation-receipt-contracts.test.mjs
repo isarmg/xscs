@@ -137,3 +137,19 @@ test('a receipt from an unmounted device cannot change the next device editor',a
  assert.equal(current.editor().props.application.name,'Next device draft');assert.equal(current.editor().props.blocked,false);assert.equal(receiptQueries(current).length,0);
  assert.equal(current.visibleOperations().every(value=>value.device_id==='another-device'),true);
 });
+
+test('a wrong-action receipt in the recent page preserves the accepted pending save until its valid receipt returns',async()=>{
+ const f=await initialize();f.workspaceButton('General').props.onClick();f.qp().props.onChange({target:{value:'29'}});f.workspaceButton('Apply changes').props.onClick();await f.settle();
+ const save=f.operations.find(value=>value.action==='sunshine.config.save');assert.ok(save);assert.equal(f.workspaceButton('Apply changes').props.disabled,true);
+ f.qp().props.onChange({target:{value:'31'}});
+ save.action='sunshine.config.read';save.state='succeeded';save.updated_at_micros=1000;save.result={kind:'config_saved',snapshot:{...config,revision:'b'.repeat(64),fields:{qp:'29'},effectiveness:'awaiting_restart'}};await f.poll();
+ assert.match(f.errors(),/Task status is temporarily unavailable/);assert.equal(f.qp().props.value,'31');assert.equal(f.workspaceButton('Apply changes').props.disabled,true);
+ assert.equal(f.visibleOperations().find(value=>value.operation_id===save.operation_id).state,'pending');
+ assert.equal(f.commands.filter(value=>value.kind==='save_config').length,1);
+ save.action='sunshine.config.save';save.updated_at_micros+=1;await f.poll();
+ assert.doesNotMatch(f.errors(),/Task status is temporarily unavailable/);assert.equal(f.qp().props.value,'31');assert.equal(f.workspaceButton('Apply changes').props.disabled,false);
+ assert.equal(f.commands.filter(value=>value.kind==='save_config').length,1);
+ f.workspaceButton('Apply changes').props.onClick();await f.settle();
+ const next=f.operations.find(value=>value.action==='sunshine.config.save');assert.notEqual(next.operation_id,save.operation_id);next.state='unknown';next.result={kind:'unknown',reason:'side_effect_not_confirmed'};next.updated_at_micros=2000;await f.poll();
+ assert.equal(f.qp().props.value,'31');assert.equal(f.workspaceButton('Apply changes').props.disabled,true);assert.equal(f.commands.filter(value=>value.kind==='save_config').length,2);
+});
