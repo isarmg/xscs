@@ -83,8 +83,8 @@
 .sunshine-config-field > .xcss-input:disabled, .sunshine-config-select-trigger:disabled { opacity: .55; cursor: not-allowed; }
 .sunshine-config-select-options { position: absolute; z-index: 10; inset-inline: 0; top: calc(100% + 6px); box-sizing: border-box; overflow-y: auto; overscroll-behavior: contain; margin: 0; padding: 0; list-style: none; border: 1px solid var(--xcss-block-border, currentColor); border-radius: 0; background: var(--xcss-bg-panel); color: var(--xcss-text-primary); box-shadow: 0 8px 24px #0003; }
 /* Keep the first paint hidden until the renderer has installed both contour
-   paint and clipping. Hidden panels retain their measurable layout. */
-.sunshine-config-select-options:not([data-xcss-server-corner-state="clip"]) { visibility: hidden; }
+   paint and clipping, or completed a native fallback. Hidden panels retain layout. */
+.sunshine-config-select-options:not([data-xcss-server-corner-state="clip"]):not([data-xcss-server-corner-state="fallback"]:not([data-xcss-server-corner-reason="not-visible"])) { visibility: hidden; }
 .sunshine-config-select-options[data-above="true"] { top: auto; bottom: calc(100% + 6px); }
 .sunshine-config-select-options > li { display: flex; align-items: center; justify-content: space-between; gap: 12px; box-sizing: border-box; min-height: 44px; padding: 10px var(--xcss-server-corner-text-inset, 26px); border-radius: 0; cursor: pointer; overflow-wrap: anywhere; }
 .sunshine-config-select-options > li[data-active="true"] { background: color-mix(in srgb, var(--xcss-action-primary) 12%, var(--xcss-bg-panel)); outline: 1px solid var(--xcss-action-primary); outline-offset: -1px; }

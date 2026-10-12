@@ -155,8 +155,22 @@ try {
       await categories.getByRole("button", { name: "输入", exact: true }).click();
       const controller = page.getByRole("combobox", { name: "控制器输入", exact: true });
       const keyboard = page.getByRole("combobox", { name: "键盘输入", exact: true });
+      // An author inset shadow is a completed native fallback, not a reason
+      // to leave the custom dropdown invisible after the renderer finishes.
+      const fallbackStyle = await page.addStyleTag({ content: '.sunshine-config-select-options { box-shadow: inset 0 0 2px black !important; }' });
       await controller.click();
+      const controllerOptions = page.getByRole("listbox", { name: "控制器输入", exact: true });
+      await expect(controllerOptions).toHaveAttribute("data-xcss-server-corner-state", "fallback");
+      await expect(controllerOptions).toHaveAttribute("data-xcss-server-corner-reason", "inset-or-unsupported-shadow");
+      await expect(controllerOptions).toBeVisible();
       await page.getByRole("option", { name: "禁用", exact: true }).click();
+      await expect(controller).toContainText("禁用");
+      await expect(controllerOptions).toHaveCount(0);
+      await fallbackStyle.evaluate(style => style.remove());
+      await controller.click();
+      await expect(controllerOptions).toHaveAttribute("data-xcss-server-corner-state", "clip");
+      await expect(controllerOptions).toBeVisible();
+      await controller.press("Escape");
       await keyboard.click();
       await page.getByRole("option", { name: "启用", exact: true }).click();
       await expect(configurationStatus).toHaveCount(0);
