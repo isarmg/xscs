@@ -30,6 +30,7 @@ const labels: Record<string, readonly [string, string]> = {
   maintenance_completed: ["维护已完成", "Maintenance completed"], service_status_read: ["服务状态已读取", "Service status read"], service_controlled: ["服务控制已完成", "Service control completed"],
   resource_conflict: ["资源修订冲突", "Resource revision conflict"], unsupported_capability: ["客户端能力不支持", "Client capability unsupported"],
   side_effect_not_confirmed: ["副作用结果未确认", "Side effect not confirmed"], service_transition_not_confirmed: ["服务状态转换未确认", "Service transition not confirmed"],
+  device_revoked: ["实例已撤销", "Instance revoked"],
   authorization_rotated: ["实例密码已更换", "Instance password changed"],
   true: ["启用", "Enabled"], false: ["禁用", "Disabled"], info: ["信息", "Information"], warning: ["警告", "Warning"],
   error: ["错误", "Error"], fatal: ["致命错误", "Fatal"],

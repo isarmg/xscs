@@ -881,7 +881,8 @@ async fn claims_are_serial_session_fenced_and_revocation_stops_new_work() {
     ));
     ops.disconnected(&independent_write).await.unwrap();
     db::revoke(&pool, &id, "admin").await.unwrap();
-    assert!(ops.next(&id, "s2").await.is_err());
+    // Revocation retires pending work, so there is nothing left to claim.
+    assert!(ops.next(&id, "s2").await.unwrap().is_none());
     assert!(
         ops.enqueue("admin", &id, "three", Command::ReadConfig {})
             .await
@@ -1836,5 +1837,87 @@ async fn interrupted_write_still_blocks_writes_but_allows_reads() {
             .unwrap()
             .state,
         OperationState::Pending
+    );
+}
+
+#[tokio::test]
+async fn revocation_retires_queued_work_and_preserves_running_uncertainty() {
+    let (_dir, pool) = database().await;
+    let (id, credential) = registered(&pool).await;
+    let ops = manager(&pool);
+    let running = ops
+        .enqueue(
+            "admin",
+            &id,
+            "revoked-running",
+            Command::Restart {
+                expected_revision: "a".repeat(64),
+                administrator_confirmed: true,
+            },
+        )
+        .await
+        .unwrap();
+    session(&pool, &id, "revoked-session").await;
+    let claimed = ops.next(&id, "revoked-session").await.unwrap().unwrap();
+    assert_eq!(claimed.operation.operation_id, running.operation_id);
+    let queued = ops
+        .enqueue("admin", &id, "revoked-pending", Command::ReadConfig {})
+        .await
+        .unwrap();
+    let (other, _) = registered(&pool).await;
+    let unaffected = ops
+        .enqueue("admin", &other, "unaffected", Command::ReadConfig {})
+        .await
+        .unwrap();
+
+    for _ in 0..2 {
+        db::revoke(&pool, &id, "admin").await.unwrap();
+    }
+    assert!(db::authenticate_device(&pool, &credential).await.is_err());
+    for (operation, expected) in [
+        (&running, OperationState::Unknown),
+        (&queued, OperationState::Failed),
+    ] {
+        let view = ops
+            .get_for_actor("admin", &operation.operation_id)
+            .await
+            .unwrap();
+        assert_eq!(view.state, expected);
+        assert_eq!(view.status_reason, Some("device_revoked"));
+        let row: (Option<String>, Option<i64>) = sqlx::query_as(
+            "SELECT lease_owner,lease_expiry_micros FROM _common_operations WHERE operation_id=?",
+        )
+        .bind(&operation.operation_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(row, (None, None));
+        let events: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM _common_operation_audit_outbox WHERE operation_id=? AND to_state=?",
+        )
+        .bind(&operation.operation_id)
+        .bind(expected.as_str())
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(events, 1);
+    }
+    assert_eq!(
+        ops.get_for_actor("admin", &unaffected.operation_id)
+            .await
+            .unwrap()
+            .state,
+        OperationState::Pending
+    );
+    assert!(
+        ops.complete(
+            &claimed,
+            "revoked-session",
+            Report::Rejected {
+                reason: Rejection::SunshineUnavailable,
+            }
+        )
+        .await
+        .is_err()
     );
 }

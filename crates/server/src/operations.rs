@@ -288,6 +288,7 @@ fn public_status_reason(code: Option<&str>) -> Option<&'static str> {
     // Only product-owned, administrator-facing reasons cross the API boundary.
     match code {
         Some("authorization_rotated") => Some("authorization_rotated"),
+        Some("device_revoked") => Some("device_revoked"),
         Some("execution_deadline_expired") => Some("execution_deadline_expired"),
         _ => None,
     }

@@ -218,18 +218,19 @@ pub async fn rotate_authorization(
             Err(AppError::Conflict("已撤销实例不能更换密码".into()))
         };
     }
-    retire_operations_for_authorization_rotation(&mut tx, id, now).await?;
+    retire_operations_for_invalidation(&mut tx, id, now, "authorization_rotated").await?;
     audit(&mut tx, "device.authorization.rotate", id, actor, None).await?;
     tx.commit().await?;
     Ok(authorization_code.to_owned())
 }
 
-async fn retire_operations_for_authorization_rotation(
+async fn retire_operations_for_invalidation(
     tx: &mut Transaction<'_, Sqlite>,
     device_id: &str,
     now: i64,
+    reason: &str,
 ) -> AppResult<()> {
-    // Rotation fences delivery in the same write transaction that clears the
+    // Credential invalidation fences delivery in the same write transaction that clears the
     // old credential. Pending work did not run; running work needs review.
     let operations: Vec<(String, String)> = sqlx::query_as(
         "SELECT operation_id,state FROM _common_operations \
@@ -245,11 +246,12 @@ async fn retire_operations_for_authorization_rotation(
             "unknown"
         };
         let changed = sqlx::query(
-            "UPDATE _common_operations SET state=?,error_code='authorization_rotated',\
+            "UPDATE _common_operations SET state=?,error_code=?,\
              lease_owner=NULL,lease_expiry_micros=NULL,updated_at_micros=? \
              WHERE operation_id=? AND state=?",
         )
         .bind(to)
+        .bind(reason)
         .bind(now)
         .bind(&operation_id)
         .bind(&from)
@@ -258,7 +260,7 @@ async fn retire_operations_for_authorization_rotation(
         .rows_affected();
         if changed != 1 {
             return Err(AppError::Internal(anyhow::anyhow!(
-                "operation changed during authorization rotation"
+                "operation changed during credential invalidation"
             )));
         }
         sqlx::query(
@@ -330,6 +332,7 @@ pub async fn revoke(pool: &SqlitePool, id: &str, actor: &str) -> AppResult<()> {
     let mut tx = pool.begin_with("BEGIN IMMEDIATE").await?;
     if sqlx::query("UPDATE devices SET revoked_at_micros=?,credential_hash=NULL,enrollment_hash=NULL,session_id=NULL,updated_at_micros=? WHERE device_id=?")
         .bind(now_micros()?).bind(now_micros()?).bind(id).execute(&mut *tx).await?.rows_affected()!=1 { return Err(AppError::NotFound("设备不存在".into())); }
+    retire_operations_for_invalidation(&mut tx, id, now_micros()?, "device_revoked").await?;
     audit(&mut tx, "device.revoke", id, actor, None).await?;
     tx.commit().await?;
     Ok(())
