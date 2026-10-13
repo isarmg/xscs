@@ -16,7 +16,7 @@ xscs 为管理员提供自托管 Web 管理台，服务端运行于 Linux AMD64 
 - [日常运维](administration.md)：服务、日志、容量和账号维护
 - [排查问题](troubleshooting.md)：根据现象选择检查
 - [命令参考](cli.md)：初始化、校验、状态和诊断
-- [本地运行](local-service.md)与[开发指南](development.md)：构建、测试、打包
+- [本地运行](operations.md)与[开发指南](development.md)：构建、测试、打包
 - [实现概览](architecture.md)与[学习路线](beginner-guide/README.md)：理解协议和持久化
 - [功能范围](feature-inventory-and-tradeoffs.md)、[公共库](common-support.md)、[仓库关系](repository-boundary.md)与[原生接口审查](unsafe-audit.md)
 - [1.0.3 发行说明](releases/1.0.3.md)、[1.0.2 历史发行记录](releases/1.0.2.md)、[1.0.1 历史发行记录](releases/1.0.1.md)

@@ -20,15 +20,15 @@ const nodeVersion = readFileSync(
 assert.match(nodeVersion, /^26\.7\.0\n?$/);
 assertXcssWebToolchain(manifest, nodeVersion);
 for (const dependency of xcssPackages) {
-  const expected = "https://github.com/isarmg/xcss/releases/download/v1.0.11/xcss-web-1.0.11.tgz";
+  const expected = "https://github.com/isarmg/xcss/releases/download/v1.0.13/xcss-web-1.0.13.tgz";
   assert.equal(manifest.dependencies?.[dependency], expected);
   assert.equal(lock.packages?.[""]?.dependencies?.[dependency], expected);
 
   const locked = lock.packages?.[`node_modules/${dependency}`];
   assert.equal(locked?.link, undefined);
   assert.equal(locked?.resolved, expected);
-  assert.equal(locked?.version, "1.0.11");
-  assert.match(locked?.integrity ?? "", /^sha512-[A-Za-z0-9+/]+={0,2}$/);
+  assert.equal(locked?.version, "1.0.13");
+  assert.equal(locked?.integrity, "sha512-nqoi5uOqmrjH/2j3PXoi1bGVPucr+Rm1HzWiXjr2bhzJ6AgnlD1Y6AywKvIAZnOGIVg5RFi36aLc2vc5Srri9g==");
 }
 const adminStyles = readFileSync(new URL("../node_modules/@xcss/web/dist/admin-ui/styles.css", import.meta.url), "utf8");
 assert.match(adminStyles, /@import ["']\.\/content-blocks\.css["']/);

@@ -11,7 +11,6 @@ pub mod error;
 pub mod http;
 pub mod model;
 pub mod operations;
-pub mod release_bundle;
 pub mod release_contract;
 pub mod runtime_lock;
 
@@ -19,3 +18,5 @@ pub use config::ServeConfig;
 pub use error::{AppError, AppResult};
 
 pub mod web_assets;
+
+pub mod offline;

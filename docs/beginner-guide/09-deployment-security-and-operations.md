@@ -1,7 +1,15 @@
-# 09. 部署与观察运行
+# Installation and operation
 
-按[运维指南](../administration.md)读取日志和 /readyz。ready 是最小就绪事实，具体问题用日志及配置验证定位；check只读检查状态，维护先停服。
+Use the signed release package with the shared [XSSI](https://github.com/isarmg/xssi) installer. Verify the package against an independently supplied release public key and fingerprint before executing its scripts or helper. The installer prepares the service account, directories, configuration, initial administrator and systemd unit. Host operations belong to the scripts.
 
-练习：在隔离环境改变一个无秘密的合法配置值，验证来源，重启后核对行为。生产密钥保持与数据库配套。
+The default installation root is `/opt/isarmg/xscs`. Runtime invocation is `xscs --root ROOT`. The server reads `ROOT/config/config.json`, opens existing initialized state and starts HTTP. Startup never creates administrator accounts or installation secrets.
 
-[学习路线](README.md) · [文档首页](../README.md)
+An upgrade first downloads and verifies the complete package while the existing service is running. Its script then stops all writers and delegates the locked backup, explicit source/target schema migration and atomic package switch to XSSC. The script starts the resulting service and checks readiness; failure restores the backed-up generation before returning to the previous service. Media/file paths are preserved instead of silently moved.
+
+Offline configuration checks and administrator password resets use the signed `libexec/setup` helper through XSSI maintenance scripts. Runtime HTTP administrator and health endpoints remain available. Passwords use the existing administrator hash policy; resetting an administrator password preserves instance authorization keys.
+
+Uninstallation and removal of data are performed by the operator.
+
+## Development checks
+
+Build embedded assets with the pinned XCSS Web builder, then run `cargo fmt --all -- --check`, product unit tests and Clippy. Use isolated private fixtures for offline initialization, validation and migration checks. Product packages obtain installer implementation from the exact `installer-source.json` revision and require the controlled `XSSI_SIGNING_KEY` file.

@@ -329,10 +329,11 @@ pub async fn rename(pool: &SqlitePool, id: &str, name: &str, actor: &str) -> App
     get_device(pool, id).await?.view(now_micros()?)
 }
 pub async fn revoke(pool: &SqlitePool, id: &str, actor: &str) -> AppResult<()> {
+    let now = now_micros()?;
     let mut tx = pool.begin_with("BEGIN IMMEDIATE").await?;
     if sqlx::query("UPDATE devices SET revoked_at_micros=?,credential_hash=NULL,enrollment_hash=NULL,session_id=NULL,updated_at_micros=? WHERE device_id=?")
-        .bind(now_micros()?).bind(now_micros()?).bind(id).execute(&mut *tx).await?.rows_affected()!=1 { return Err(AppError::NotFound("设备不存在".into())); }
-    retire_operations_for_invalidation(&mut tx, id, now_micros()?, "device_revoked").await?;
+        .bind(now).bind(now).bind(id).execute(&mut *tx).await?.rows_affected()!=1 { return Err(AppError::NotFound("设备不存在".into())); }
+    retire_operations_for_invalidation(&mut tx, id, now, "device_revoked").await?;
     audit(&mut tx, "device.revoke", id, actor, None).await?;
     tx.commit().await?;
     Ok(())
@@ -492,25 +493,25 @@ pub async fn require_current_runtime_state(
     xcss::sqlite::integrity_check(pool).await?;
     xcss::sqlite::foreign_key_check(pool).await?;
     manager_id(pool).await?;
-    list_devices(pool).await?;
-    let authorizations: Vec<(String, String, Option<Vec<u8>>)> = sqlx::query_as(
-        "SELECT device_id,authorization_code_enc,enrollment_hash FROM devices ORDER BY device_id",
-    )
-    .fetch_all(pool)
-    .await?;
-    for (device_id, encrypted, enrollment_hash) in authorizations {
+    use futures_util::TryStreamExt as _;
+    let now = now_micros()?;
+    let mut devices =
+        sqlx::query_as::<_, Device>("SELECT * FROM devices ORDER BY device_id").fetch(pool);
+    while let Some(device) = devices.try_next().await? {
+        device.view(now)?;
         let code = secrets
-            .decrypt_client_authorization(&device_id, &encrypted)
+            .decrypt_client_authorization(&device.device_id, &device.authorization_code_enc)
             .map_err(|_| anyhow::anyhow!("stored client authorization is unreadable"))?;
         validate_pairing_authorization_code(&code)
             .map_err(|_| anyhow::anyhow!("stored client authorization is invalid"))?;
-        if let Some(stored_hash) = enrollment_hash {
+        if let Some(stored_hash) = device.enrollment_hash {
             anyhow::ensure!(
                 stored_hash == token_hash(&code),
                 "stored client authorization digest does not match its encrypted value"
             );
         }
     }
+    drop(devices);
     let store = xcss::operations::SqliteOperationStore::new(pool.clone());
     let mut cursor = String::new();
     loop {

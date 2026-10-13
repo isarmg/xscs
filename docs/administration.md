@@ -1,15 +1,9 @@
-# 管理服务
+# Administration
 
-使用 `systemctl status xscs` 查看服务状态，`journalctl -u xscs` 查看启动前诊断。运行日志以UTC结构JSONL写入data_dir/logs，亦可从管理UI查看。修改JSON配置后先执行 `xscs config validate`，再 `systemctl restart xscs` 和 `xscs status --json`。
+Runtime status is available from `systemctl status xscs.service` and the HTTP `/readyz` endpoint. Application logs are UTC JSONL files under `ROOT/logs`; `journalctl --utc -u xscs.service` includes startup diagnostics.
 
-维护前 `systemctl stop xscs` 并等待退出。`xscs check` 只读验证完整状态，不创建数据库或密钥。备份整个data_dir，包括secrets.json；不要只替换数据库或重新生成密钥。
+The server executable accepts `xscs --root ROOT` and ordinary help/version options. Installation and offline checks, backups and account maintenance use the separate signed XSSI scripts and setup helper. Startup opens existing state and preserves installation secrets.
 
-```bash
-sudo systemctl stop xscs
-read -rs -p '新密码: ' password; printf '\n'
-printf '%s\n' "$password" | sudo -u isarmg-xscs /opt/isarmg/xscs/bin/xscs admin reset-password --username admin
-unset password
-sudo systemctl start xscs
-```
+Normal administrator username/password changes use the person icon in the Web menu. Offline password recovery runs through XSSI maintenance with the service stopped; it validates the current database and preserves `data_dir/secrets.json`, instance identities and encrypted client authorizations. It revokes previous administrator sessions.
 
-正常改名改密使用Web账号设置。详细安装和路径见[运维](operations.md)。
+Back up the full configured data directory, configuration and explicit external business paths together. Database files and installation secrets belong to the same generation. See [operations](operations.md), [configuration](configuration.md) and [account settings](account-settings.md).

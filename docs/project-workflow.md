@@ -3,7 +3,7 @@
 ## 部署到首次使用
 
 1. 在 Linux AMD64 GNU 安装发行树，准备私有配置和数据目录。
-2. 显式 init 创建管理员与数据库，再由 systemd 启动服务。
+2. XSSI 安装器创建管理员与数据库，再由 systemd 启动服务。
 3. 检查 ready，通过 HTTPS 登录管理台。
 4. 创建实例，在主机安装 xscc 并运行 setup。
 5. 读取 Sunshine 配置，确认任务往返成功。

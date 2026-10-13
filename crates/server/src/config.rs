@@ -8,68 +8,53 @@ use std::{
 use anyhow::Context;
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use serde::{Deserialize, Serialize};
-use xcss::config::{ConfigSource, EnvMapping, EnvValueKind, Override};
+#[cfg(test)]
+use xcss::config::Override;
+use xcss::config::{ConfigSource, EnvMapping, EnvValueKind};
 
 use crate::crypto::SecretBox;
 
 #[derive(Clone)]
 pub struct ServeConfig {
+    pub root: PathBuf,
     pub bind: SocketAddr,
     pub database_url: String,
     pub production: bool,
     pub log_level: String,
-    pub trusted_proxies: xcss::client_ip::TrustedProxies,
     pub static_dir: Option<PathBuf>,
     pub data_dir: PathBuf,
     pub sources: BTreeMap<String, ConfigSource>,
 }
 
 impl ServeConfig {
-    pub fn from_runtime() -> anyhow::Result<Self> {
-        Self::from_sources(None, None, None, None, None)
-    }
+    pub fn from_root_sources(root: &Path, config: &Path) -> anyhow::Result<Self> {
+        anyhow::ensure!(
+            root.is_absolute()
+                && root != Path::new("/")
+                && root.components().all(|part| matches!(
+                    part,
+                    std::path::Component::RootDir | std::path::Component::Normal(_)
+                )),
+            "root must be a normalized absolute directory"
+        );
+        let defaults = Settings {
+            data_dir: root.join("state"),
+            ..Settings::default()
+        };
 
-    pub fn from_sources(
-        config: Option<&Path>,
-        data_dir: Option<&Path>,
-        bind: Option<SocketAddr>,
-        development: Option<bool>,
-        log_level: Option<&str>,
-    ) -> anyhow::Result<Self> {
-        let config = default_config_path(config)?
-            .as_deref()
-            .map(normalize_config_path)
-            .transpose()?;
-        let file = config
-            .as_deref()
-            .map(xcss::config::read_private_file)
-            .transpose()?;
-        let environment = xcss::config::read_environment(&ENVIRONMENT, |name| env::var(name).ok())?;
-        let mut command_line = Vec::new();
-        if let Some(path) = data_dir {
-            command_line.push(Override::new(
-                "/data_dir",
-                path.to_string_lossy().into_owned(),
-            ));
-        }
-        if let Some(bind) = bind {
-            command_line.push(Override::new("/bind", bind.to_string()));
-        }
-        if let Some(development) = development {
-            command_line.push(Override::new("/development", development));
-        }
-        if let Some(level) = log_level {
-            command_line.push(Override::new("/log_level", level));
-        }
+        let config = normalize_config_path(config)?;
+        let file = xcss::config::read_private_file(&config)?;
+        let environment = xcss::config::read_environment(ENVIRONMENT, |name| env::var(name).ok())?;
         let loaded = xcss::config::resolve_validated(
-            &Settings::default(),
-            file.as_deref(),
+            &defaults,
+            Some(&file),
             &environment,
-            &command_line,
+            &[],
             validate_intrinsic,
         )?;
         let settings = loaded.value;
         let data_dir = settings.data_dir;
+        validate_state_location(root, &data_dir)?;
         let database_url = format!("sqlite://{}", data_dir.join("xscs.sqlite3").display());
         let bind = settings.bind;
         let production = !settings.development;
@@ -82,11 +67,11 @@ impl ServeConfig {
         validate_bind(bind, production)?;
 
         Ok(Self {
+            root: root.to_path_buf(),
             bind,
             database_url,
             production,
             log_level: settings.log_level,
-            trusted_proxies: xcss::client_ip::TrustedProxies::parse(&settings.trusted_proxies)?,
             static_dir,
             data_dir,
             sources: loaded.sources,
@@ -101,24 +86,22 @@ struct Settings {
     bind: SocketAddr,
     development: bool,
     log_level: String,
-    trusted_proxies: Vec<String>,
     development_web_dir: Option<String>,
 }
 
 impl Default for Settings {
     fn default() -> Self {
         Self {
-            data_dir: PathBuf::from("/var/lib/isarmg/xscs"),
+            data_dir: PathBuf::from("/opt/isarmg/xscs/state"),
             bind: "127.0.0.1:18104".parse().expect("valid default bind"),
             development: false,
             log_level: "info".into(),
-            trusted_proxies: Vec::new(),
             development_web_dir: None,
         }
     }
 }
 
-const ENVIRONMENT: [EnvMapping<'static>; 6] = [
+const ENVIRONMENT: &[EnvMapping<'static>] = &[
     EnvMapping {
         variable: "XSCS_DATA_DIR",
         path: "/data_dir",
@@ -133,11 +116,6 @@ const ENVIRONMENT: [EnvMapping<'static>; 6] = [
         variable: "XSCS_DEVELOPMENT",
         path: "/development",
         kind: EnvValueKind::Boolean,
-    },
-    EnvMapping {
-        variable: "XSCS_TRUSTED_PROXIES",
-        path: "/trusted_proxies",
-        kind: EnvValueKind::Json,
     },
     EnvMapping {
         variable: "XSCS_LOG_LEVEL",
@@ -312,8 +290,6 @@ fn validate_intrinsic(
     {
         return Err(invalid("/data_dir"));
     }
-    xcss::client_ip::TrustedProxies::parse(&settings.trusted_proxies)
-        .map_err(|_| invalid("/trusted_proxies"))?;
     if !["error", "warn", "info", "debug", "trace", "off"].contains(&settings.log_level.as_str()) {
         return Err(invalid("/log_level"));
     }
@@ -337,8 +313,8 @@ mod precedence_contract_tests {
         let error = xcss::config::resolve_validated(
             &Settings::default(),
             Some(&file),
-            &[],
             &[Override::new("/bind", serde_json::json!("127.0.0.1:18104"))],
+            &[],
             validate_intrinsic,
         )
         .err()
@@ -353,7 +329,7 @@ mod precedence_contract_tests {
     }
 }
 
-/// Normalize the CLI file authority before private reads and resource reporting.
+/// Normalize the required configuration path before private reads and reporting.
 pub fn normalize_config_path(path: &Path) -> anyhow::Result<PathBuf> {
     anyhow::ensure!(
         !path
@@ -364,19 +340,6 @@ pub fn normalize_config_path(path: &Path) -> anyhow::Result<PathBuf> {
     Ok(std::path::absolute(path)?)
 }
 
-/// An absent implicit file is optional; explicit paths and all other errors fail closed.
-fn default_config_path(explicit: Option<&Path>) -> std::io::Result<Option<PathBuf>> {
-    if let Some(path) = explicit {
-        return Ok(Some(path.to_owned()));
-    }
-    let path = PathBuf::from("/etc/isarmg/xscs/config.json");
-    match std::fs::symlink_metadata(&path) {
-        Ok(_) => Ok(Some(path)),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
-        Err(error) => Err(error),
-    }
-}
-
 #[cfg(test)]
 mod deployment_defaults_tests {
     use super::*;
@@ -385,7 +348,7 @@ mod deployment_defaults_tests {
         assert!(!Settings::default().development);
         assert_eq!(
             Settings::default().data_dir,
-            PathBuf::from("/var/lib/isarmg/xscs")
+            PathBuf::from("/opt/isarmg/xscs/state")
         );
         let mut json = serde_json::to_value(Settings::default()).unwrap();
         json["production"] = serde_json::json!(true);
@@ -409,11 +372,7 @@ mod deployment_defaults_tests {
     fn explicit_missing_config_is_not_silently_dropped() {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("missing.json");
-        assert_eq!(
-            default_config_path(Some(&path)).unwrap(),
-            Some(path.clone())
-        );
-        assert!(xcss::config::read_private_file(&path).is_err());
+        assert!(ServeConfig::from_root_sources(directory.path(), &path).is_err());
     }
 }
 
@@ -504,4 +463,36 @@ mod secrets_contract_tests {
             assert!(serde_json::from_value::<Settings>(value).is_err());
         }
     }
+}
+
+fn validate_state_location(root: &Path, state: &Path) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        state.is_absolute()
+            && state != Path::new("/")
+            && state.components().all(|part| matches!(
+                part,
+                std::path::Component::RootDir | std::path::Component::Normal(_)
+            )),
+        "state paths must be normalized absolute directories"
+    );
+    anyhow::ensure!(
+        !root.starts_with(state),
+        "state directory cannot contain the installation root"
+    );
+    for name in [
+        "config",
+        "logs",
+        "run",
+        "bin",
+        "libexec",
+        "share",
+        "maintenance",
+    ] {
+        let protected = root.join(name);
+        anyhow::ensure!(
+            !state.starts_with(&protected) && !protected.starts_with(state),
+            "state directory overlaps a protected installation path"
+        );
+    }
+    Ok(())
 }

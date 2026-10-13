@@ -210,9 +210,14 @@ pub fn connection_limits() -> xcss::sqlite::ConnectionLimits {
 /// Capture before the runtime opens the original SQLite connection.
 pub async fn validation_snapshot(
     path: PathBuf,
+    temporary_root: PathBuf,
 ) -> anyhow::Result<xcss::sqlite::ValidationSnapshotPool> {
     let snapshot = tokio::task::spawn_blocking(move || {
-        xcss::sqlite::ValidationSnapshot::capture_with_limits(path, snapshot_limits())
+        xcss::sqlite::ValidationSnapshot::capture_with_limits_in(
+            path,
+            snapshot_limits(),
+            temporary_root,
+        )
     })
     .await
     .context("join private database validation capture")??;
@@ -299,7 +304,7 @@ pub fn database_path(database_url: &str) -> anyhow::Result<PathBuf> {
     Ok(normalized)
 }
 
-fn validate_existing_file(path: &Path) -> anyhow::Result<()> {
+pub(crate) fn validate_existing_file(path: &Path) -> anyhow::Result<()> {
     let metadata = fs::symlink_metadata(path)
         .with_context(|| format!("database does not exist: {}", path.display()))?;
     ensure!(

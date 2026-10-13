@@ -53,7 +53,6 @@ pub struct WorkerState {
     client_slots: HistoryReads,
     history_reads: HistoryReads,
     task_writes: HistoryReads,
-    trusted_proxies: xcss::client_ip::TrustedProxies,
 }
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct InternalIdentity {
@@ -86,12 +85,7 @@ impl WorkerState {
             client_slots: HistoryReads::with_capacity(256),
             history_reads: HistoryReads::new(),
             task_writes: HistoryReads::new(),
-            trusted_proxies: xcss::client_ip::TrustedProxies::default(),
         })
-    }
-    pub fn with_trusted_proxies(mut self, trusted: xcss::client_ip::TrustedProxies) -> Self {
-        self.trusted_proxies = trusted;
-        self
     }
     pub fn operation_manager(&self) -> &OperationManager {
         &self.operations
@@ -101,7 +95,6 @@ pub fn router(
     state: WorkerState,
     runtime: xcss::server_runtime::RuntimeHandle,
 ) -> anyhow::Result<Router> {
-    let trusted_proxies = state.trusted_proxies.clone();
     let protected = Router::new()
         .route("/sunshine/config-fields", get(config_fields))
         .route("/sunshine/devices", get(devices).post(create_device))
@@ -173,10 +166,6 @@ pub fn router(
         .with_state(state)
         .merge(platform)
         .method_not_allowed_fallback(|| async { AppError::MethodNotAllowed })
-        .layer(axum::middleware::from_fn_with_state(
-            trusted_proxies,
-            xcss::client_ip::middleware,
-        ))
         .layer(axum::middleware::from_fn(log_request))
         .layer(axum::middleware::from_fn(
             xcss::server_cli::request_context_middleware,
@@ -911,13 +900,11 @@ mod tests {
 
     use super::*;
     use axum::body::Body;
-    use axum::extract::ConnectInfo;
     use axum::http::Method;
     use axum::http::{HeaderValue, header};
     use http_body_util::BodyExt;
     use serde_json::Value;
     use sqlx::sqlite::SqlitePoolOptions;
-    use std::net::SocketAddr;
     use tower::ServiceExt;
     use xcss::error::ErrorEnvelope;
 
@@ -1037,12 +1024,7 @@ mod tests {
             test_static_dir(),
         )
         .unwrap();
-        router(state, test_runtime())
-            .unwrap()
-            .layer(Extension(ConnectInfo(SocketAddr::from((
-                [127, 0, 0, 1],
-                42_000,
-            )))))
+        router(state, test_runtime()).unwrap()
     }
 
     #[tokio::test]
@@ -1152,13 +1134,7 @@ mod tests {
             .await
             .unwrap();
         let state = WorkerState::new(pool, secrets, true, None).unwrap();
-        // Model a different ingress host without opening an external listener.
-        let application = router(state, test_runtime())
-            .unwrap()
-            .layer(Extension(ConnectInfo(SocketAddr::from((
-                [10, 20, 0, 1],
-                42_000,
-            )))));
+        let application = router(state, test_runtime()).unwrap();
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let base = format!("http://{}", listener.local_addr().unwrap());
         let server = tokio::spawn(async move { axum::serve(listener, application).await.unwrap() });
@@ -1451,12 +1427,7 @@ mod tests {
             test_static_dir(),
         )
         .unwrap();
-        let application = router(state, test_runtime())
-            .unwrap()
-            .layer(Extension(ConnectInfo(SocketAddr::from((
-                [127, 0, 0, 1],
-                42_000,
-            )))));
+        let application = router(state, test_runtime()).unwrap();
 
         let login = application
             .clone()

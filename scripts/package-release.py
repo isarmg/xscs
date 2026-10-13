@@ -1,445 +1,177 @@
 #!/usr/bin/env python3
-"""Build and publish one immutable, source-bound xscs archive."""
-
+"""Build the runtime and delegate signed package assembly to pinned XSSI."""
 from __future__ import annotations
-
-import errno
+import gzip
+import base64
 import hashlib
 import json
 import os
-import platform
+from pathlib import Path
 import re
 import shutil
-import socket
-import stat
 import subprocess
 import sys
+import tarfile
 import tempfile
-import time
-import urllib.error
-import urllib.request
-from pathlib import Path
-from typing import NoReturn
+import tomllib
 
-
-APPLICATION = "xscs"
-VERSION = __import__("tomllib").loads((Path(__file__).resolve().parents[1] / "Cargo.toml").read_text())["workspace"]["package"]["version"]
+PRODUCT = "xscs"
 TARGET = "x86_64-unknown-linux-gnu"
-TAG = f"v{VERSION}"
+SOURCE = Path(__file__).resolve().parents[1]
 
+def run(args:list[str],*,cwd:Path=SOURCE,env:dict[str,str]|None=None)->str:
+    if env is None:
+        env = build_environment()
+    result=subprocess.run(args,cwd=cwd,env=env,stdin=subprocess.DEVNULL,check=True,stdout=subprocess.PIPE,text=True)
+    return result.stdout.strip()
 
-def fail(message: str) -> NoReturn:
-    raise SystemExit(f"package release: {message}")
+def build_environment()->dict[str,str]:
+    environment=os.environ.copy()
+    environment.pop("XSSI_REPOSITORY_TOKEN",None)
+    return environment
 
+def installer_fetch_environment(token:str|None)->dict[str,str]:
+    environment=build_environment()
+    environment["GIT_TERMINAL_PROMPT"]="0"
+    environment["GIT_TRACE_REDACT"]="1"
+    for variable in ["GIT_TRACE","GIT_TRACE_CURL","GIT_CURL_VERBOSE","GIT_TRACE2","GIT_TRACE2_EVENT","GIT_TRACE2_PERF"]:
+        environment[variable]="0"
+    if token:
+        if len(token)>4096 or any(char.isspace() or ord(char)<32 for char in token):
+            raise ValueError("XSSI_REPOSITORY_TOKEN must be a nonempty credential without whitespace")
+        count=int(environment.get("GIT_CONFIG_COUNT","0"))
+        if not 0<=count<=64:raise ValueError("unsupported inherited Git configuration count")
+        environment["GIT_CONFIG_COUNT"]=str(count+1)
+        environment[f"GIT_CONFIG_KEY_{count}"]="http.https://github.com/isarmg/xssi.git.extraHeader"
+        encoded=base64.b64encode(f"x-access-token:{token}".encode()).decode()
+        environment[f"GIT_CONFIG_VALUE_{count}"]=f"Authorization: Basic {encoded}"
+    return environment
 
-def require_release_host() -> None:
-    """Require the native platform used by the release verification smoke test."""
+def pinned_installer(source:Path)->tuple[str,str]:
+    pin=json.loads((source/"installer-source.json").read_text())
+    if set(pin)!={"repository","revision"} or pin["repository"]!="https://github.com/isarmg/xssi.git" or not isinstance(pin["revision"],str) or not re.fullmatch(r"[0-9a-f]{40}",pin["revision"]):
+        raise ValueError("installer-source.json must bind the XSSI repository to an exact reviewed 40-hex commit before packaging")
+    return pin["repository"],pin["revision"]
+
+def stage_verified_server(binary:Path,destination:Path,revision:str)->None:
+    # The receipt is written by the trusted builder after Cargo returns this ELF.
+    receipt=json.loads(Path(str(binary)+".xssi-web-build.json").read_bytes())
+    if (not isinstance(receipt,dict) or receipt.get("format")!="xssi-web-build-receipt-v1"
+            or not re.fullmatch(r"[0-9a-f]{64}",receipt.get("binary_sha256", ""))
+            or not isinstance(receipt.get("identity"),dict)
+            or receipt["identity"].get("source_revision")!=revision
+            or receipt["identity"].get("product")!=PRODUCT):
+        raise ValueError("server build receipt differs from the reviewed product source")
+    created=False
     try:
-        gnu_libc = os.confstr("CS_GNU_LIBC_VERSION")
-    except (AttributeError, OSError, ValueError):
-        gnu_libc = None
-    if (
-        platform.system() != "Linux"
-        or platform.machine() != "x86_64"
-        or gnu_libc is None
-        or not gnu_libc.startswith("glibc ")
-    ):
-        fail(
-            "official Server releases require an x86_64 GNU/Linux build host; "
-            f"detected system={platform.system()!r}, machine={platform.machine()!r}, "
-            f"libc={gnu_libc!r}"
-        )
-
-
-def run(
-    arguments: list[str],
-    *,
-    cwd: Path,
-    env: dict[str, str] | None = None,
-    capture: bool = False,
-) -> subprocess.CompletedProcess[bytes]:
-    result = subprocess.run(
-        arguments,
-        cwd=cwd,
-        env=env,
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.PIPE if capture else None,
-        stderr=subprocess.PIPE if capture else None,
-        check=False,
-    )
-    if result.returncode != 0:
-        if capture:
-            sys.stderr.buffer.write(result.stdout)
-            sys.stderr.buffer.write(result.stderr)
-        fail(f"command failed ({result.returncode}): {' '.join(arguments)}")
-    return result
-
-
-def git_output(source: Path, *arguments: str) -> str:
-    result = run(["git", *arguments], cwd=source, capture=True)
-    if result.stderr:
-        sys.stderr.buffer.write(result.stderr)
-    try:
-        return result.stdout.decode("utf-8").strip()
-    except UnicodeDecodeError as error:
-        fail(f"Git output is not UTF-8: {error}")
-
-
-def require_clean_source(source: Path) -> None:
-    status = git_output(source, "status", "--porcelain=v1", "--untracked-files=all")
-    if status:
-        fail("source tree must be completely clean before and after the build")
-
-
-def chmod_tree_for_cleanup(root: Path) -> None:
-    if not root.exists() or root.is_symlink():
-        return
-    def chmod_physical(path: Path, mode: int) -> None:
-        try:
-            descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
-        except OSError as error:
-            if error.errno in (errno.ENOENT, errno.ELOOP):
-                return
-            raise
-        try:
-            metadata = os.fstat(descriptor)
-            if stat.S_ISREG(metadata.st_mode) or stat.S_ISDIR(metadata.st_mode):
-                os.fchmod(descriptor, mode)
-        finally:
-            os.close(descriptor)
-    for directory, child_directories, files in os.walk(root, topdown=False):
-        for name in files:
-            chmod_physical(Path(directory) / name, 0o600)
-        for name in child_directories:
-            chmod_physical(Path(directory) / name, 0o700)
-    chmod_physical(root, 0o700)
-
-
-def copy_exclusive(source: Path, destination: Path) -> None:
-    descriptor = os.open(
-        destination,
-        os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0),
-        0o444,
-    )
-    try:
-        with source.open("rb") as input_file, os.fdopen(
-            descriptor, "wb", closefd=True
-        ) as output_file:
-            shutil.copyfileobj(input_file, output_file, length=1024 * 1024)
-            output_file.flush()
-            os.fsync(output_file.fileno())
+        with binary.open("rb") as source,destination.open("xb") as output:
+            created=True
+            shutil.copyfileobj(source,output)
+            output.flush();os.fsync(output.fileno())
+        with destination.open("rb") as source:
+            digest=hashlib.file_digest(source,"sha256").hexdigest()
+        if digest!=receipt["binary_sha256"]:
+            raise ValueError("staged server differs from its exact build receipt")
+        destination.chmod(0o755)
     except BaseException:
-        destination.unlink(missing_ok=True)
+        if created:destination.unlink(missing_ok=True)
         raise
 
-
-def relocated_smoke(extracted: Path, temporary: Path) -> None:
-    state = temporary / "smoke-state/db"
-    state.mkdir(parents=True, mode=0o700)
-    state.chmod(0o700)
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
-        listener.bind(("127.0.0.1", 0))
-        port = listener.getsockname()[1]
-    environment = os.environ.copy()
-    environment.update(
-        {
-            "XSCS_DATA_DIR": os.fspath(state),
-            "XSCS_BIND": f"127.0.0.1:{port}",
-            "XSCS_DEVELOPMENT": "true",
-        }
-    )
-    subprocess.run([os.fspath(extracted / "bin/xscs"), "init", "--username", "release-smoke", "--json"],
-        cwd=Path("/"), env=environment, input=b"release-smoke-password\n",
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
-    installation = extracted.parent.parent
-    installation.chmod(0o755)
-    extracted.parent.chmod(0o755)
-    deployed = installation / "bin"
-    deployed.mkdir()
-    shutil.copy2(extracted / "bin/xscs", deployed / "xscs")
-    log_path = temporary / "relocated-smoke.log"
-    with log_path.open("wb") as log:
-        process = subprocess.Popen(
-            [
-                os.fspath(deployed / "xscs"),
-                "run",
-            ],
-            cwd=Path("/"),
-            env=environment,
-            stdin=subprocess.DEVNULL,
-            stdout=log,
-            stderr=subprocess.STDOUT,
-        )
+def main()->None:
+    if len(sys.argv)!=2:
+        raise SystemExit(f"usage: {Path(__file__).name} /absolute/output-directory")
+    output=Path(sys.argv[1])
+    if not output.is_absolute() or not output.is_dir() or output.resolve()!=output or output==SOURCE or SOURCE in output.parents:
+        raise ValueError("output must be an existing absolute directory outside the source repository")
+    repository,pin=pinned_installer(SOURCE)
+    repository_token=os.environ.get("XSSI_REPOSITORY_TOKEN")
+    if os.environ.get("GITHUB_ACTIONS")=="true" and not repository_token:
+        raise ValueError("XSSI_REPOSITORY_TOKEN requires read-only access to the private XSSI repository in release CI")
+    if run(["git","status","--porcelain=v1","--untracked-files=all"]):
+        raise ValueError("official packages require a clean source tree")
+    revision=run(["git","rev-parse","HEAD"])
+    version=tomllib.loads((SOURCE/"Cargo.toml").read_text())["workspace"]["package"]["version"]
+    tag=f"v{version}"
+    if run(["git","cat-file","-t",f"refs/tags/{tag}"])!="tag" or run(["git","rev-parse",f"refs/tags/{tag}^{{commit}}"])!=revision:
+        raise ValueError("official packages require the current annotated version tag at HEAD")
+    epoch=int(run(["git","show","-s","--format=%ct",revision]))
+    key=Path(os.environ.get("XSSI_SIGNING_KEY",""))
+    if not key.is_absolute() or not key.is_file() or key.is_symlink():
+        raise ValueError("XSSI_SIGNING_KEY must select the independently controlled private PEM signing key")
+    name=f"{PRODUCT}-{version}-linux-x86_64"
+    archive=output/f"{name}.tar.gz"
+    checksum=output/f"{name}.tar.gz.sha256"
+    if archive.exists() or archive.is_symlink() or checksum.exists() or checksum.is_symlink():
+        raise ValueError("refusing to overwrite any release output")
+    with tempfile.TemporaryDirectory(prefix=f"{PRODUCT}-package-") as temporary:
+        work=Path(temporary)
+        installer=work/"xssi"
+        installer.mkdir()
+        run(["git","init","--quiet"],cwd=installer)
+        run(["git","remote","add","origin",repository],cwd=installer)
+        run(["git","fetch","--quiet","--depth=1","origin",pin],cwd=installer,env=installer_fetch_environment(repository_token))
+        run(["git","checkout","--quiet","--detach","FETCH_HEAD"],cwd=installer)
+        if run(["git","rev-parse","HEAD"],cwd=installer)!=pin:
+            raise ValueError("installer checkout differs from the reviewed pin")
+        stage=work/name
+        (stage/"bin").mkdir(parents=True)
+        (stage/"config").mkdir()
+        (stage/"share").mkdir()
+        metadata=work/"metadata"
+        metadata.mkdir()
+        web=work/"web"
+        target=Path(os.environ.get("CARGO_TARGET_DIR",SOURCE/"target"))
+        if not target.is_absolute():raise ValueError("CARGO_TARGET_DIR must be absolute")
+        env=build_environment()
+        env.update({"CARGO_TARGET_DIR":str(target),"XSSI_BUILD_METADATA_DIR":str(metadata),f"{PRODUCT.upper()}_SOURCE_REVISION":revision,"XCSS_WEB_DIST":str(web)})
+        builder=SOURCE/"web/node_modules/.bin/xcss-build-server"
+        args=[str(builder),"--config",str(SOURCE/"xcss-web-build.json"),"--mode","release","--no-install","--dist",str(web)]
+        run([*args,"--web-only"],env=env)
+        run([*args,"--rust-only","--source-revision",revision],env=env)
+        stage_verified_server(target/TARGET/"release"/PRODUCT,stage/"bin"/PRODUCT,revision)
+        example=SOURCE/"config"/"config.json.example"
+        if not example.exists():example=SOURCE/"config"/f"{PRODUCT}.json.example"
+        shutil.copyfile(example,stage/"config/config.json.example")
+        shutil.copyfile(SOURCE/"LICENSE",stage/"share/LICENSE")
+        shutil.copyfile(SOURCE/"docs/server-release-readme.md",stage/"share/README.md")
+        for suffix in ["state-contract","web-assets"]:
+            shutil.copyfile(metadata/f"{PRODUCT}-{suffix}.json",stage/"share"/f"{suffix}.json")
+        env.update({"XSSI_IDENTITY_FILE":str(metadata/f"{PRODUCT}-identity.json"),"XSSI_SCHEMA_FILE":str(metadata/f"{PRODUCT}-schema.json"),"XSSI_SIGNING_KEY":str(key)})
+        run(["bash",str(installer/"scripts/build-package.sh"),PRODUCT,str(SOURCE),str(stage)],cwd=installer,env=env)
+        # Verify the signature and payload without executing either candidate ELF.
+        public_key=work/"release-public.pem"
+        run(["openssl","pkey","-in",str(key),"-pubout","-out",str(public_key)])
+        der=subprocess.run(["openssl","pkey","-pubin","-in",str(public_key),"-outform","DER"],check=True,stdout=subprocess.PIPE).stdout
+        fingerprint=hashlib.sha256(der).hexdigest()
+        run(["python3",str(installer/"scripts/package.py"),"verify",str(stage),"--public-key",str(public_key),"--key-sha256",fingerprint],cwd=installer)
+        if run(["git","rev-parse","HEAD"])!=revision or run(["git","status","--porcelain=v1","--untracked-files=all"]):
+            raise ValueError("source changed during package construction")
+        staged_archive=work/archive.name
+        with staged_archive.open("wb") as archive_stream,gzip.GzipFile(filename="",fileobj=archive_stream,mode="wb",mtime=epoch) as compressed,tarfile.open(fileobj=compressed,mode="w",format=tarfile.PAX_FORMAT) as tar:
+            for path in [stage,*sorted(stage.rglob("*"))]:
+                if path.is_symlink() or not (path.is_file() or path.is_dir()):raise ValueError("package has an unsafe filesystem entry")
+                entry=tar.gettarinfo(str(path),arcname=str(path.relative_to(work)))
+                entry.uid=entry.gid=0;entry.uname=entry.gname="";entry.mtime=epoch
+                if path.is_file():
+                    with path.open("rb") as content:tar.addfile(entry,content)
+                else:tar.addfile(entry)
+        with staged_archive.open("rb") as source_stream:
+            digest=hashlib.file_digest(source_stream,"sha256").hexdigest()
+        # Exclusive output avoids silently replacing already published bytes.
+        created_archive=False
+        created_checksum=False
         try:
-            ready = False
-            for _ in range(120):
-                if process.poll() is not None:
-                    break
-                try:
-                    with urllib.request.urlopen(
-                        f"http://127.0.0.1:{port}/readyz", timeout=1
-                    ) as response:
-                        ready = (response.status == 200 and response.getheader("x-service") == "xscs" and response.read(128) == b'{"ready":true}')
-                except (urllib.error.URLError, TimeoutError):
-                    pass
-                if ready:
-                    break
-                time.sleep(0.1)
-            if not ready:
-                log.flush()
-                sys.stderr.buffer.write(log_path.read_bytes())
-                fail("relocated release did not become live")
-            inventory = json.loads((extracted / "web-assets.json").read_bytes())
-            for asset in inventory["files"]:
-                with urllib.request.urlopen(f"http://127.0.0.1:{port}/{asset['path']}", timeout=2) as response:
-                    body = response.read()
-                    if (response.status != 200 or len(body) != asset["size"]
-                        or hashlib.sha256(body).hexdigest() != asset["sha256"]
-                        or response.headers.get("Content-Type") != asset["content_type"]
-                        or response.headers.get("X-Content-Type-Options") != "nosniff"):
-                        fail(f"relocated embedded asset does not match its compiled inventory: {asset['path']}")
-            with urllib.request.urlopen(f"http://127.0.0.1:{port}/", timeout=2) as response:
-                if "no-store" not in {value.strip().lower() for value in response.headers.get("Cache-Control", "").split(",")}:
-                    fail("relocated browser entry must not be cached")
-        finally:
-            if process.poll() is None:
-                process.terminate()
-                try:
-                    process.wait(timeout=10)
-                except subprocess.TimeoutExpired:
-                    process.kill()
-                    process.wait(timeout=5)
-
-    asset_path = extracted / "web-assets.json"
-    asset_path.chmod(0o644)
-    with asset_path.open("ab") as asset:
-        asset.write(b"\ntampered\n")
-    asset_path.chmod(0o444)
-    rejection = subprocess.run(
-        [
-            os.fspath(extracted / "bin/xscs"),
-            "verify-release",
-            "--root",
-            os.fspath(extracted),
-        ],
-        cwd=Path("/"),
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        check=False,
-    )
-    if rejection.returncode == 0 or not any(
-        marker in rejection.stderr for marker in [b"digest mismatch", b"size mismatch"]
-    ):
-        fail("release verifier did not reject a tampered embedded Web inventory")
-
-
-def main() -> None:
-    if len(sys.argv) != 2:
-        fail("usage: package-release.py /absolute/output-directory")
-    require_release_host()
-    source = Path(__file__).resolve(strict=True).parent.parent
-    output_directory = Path(sys.argv[1])
-    if not output_directory.is_absolute():
-        fail("output directory must be absolute")
-    if output_directory.resolve(strict=True) != output_directory:
-        fail("output directory must be an existing real directory")
-    if source == output_directory or source in output_directory.parents:
-        fail("output directory must be outside the source tree")
-
-    for command in ["cargo", "git", "npm", "python3", "tar"]:
-        if shutil.which(command) is None:
-            fail(f"required command is missing: {command}")
-    require_clean_source(source)
-    revision = git_output(source, "rev-parse", "--verify", "HEAD")
-    if len(revision) != 40 or any(character not in "0123456789abcdef" for character in revision):
-        fail("HEAD is not a full lowercase 40-hex Git commit")
-    if git_output(source, "cat-file", "-t", f"refs/tags/{TAG}") != "tag":
-        fail(f"official packaging requires the annotated tag {TAG}")
-    if git_output(source, "rev-parse", f"refs/tags/{TAG}^{{commit}}") != revision:
-        fail(f"annotated tag {TAG} does not identify HEAD")
-    source_epoch_text = git_output(source, "show", "-s", "--format=%ct", revision)
-    if not source_epoch_text.isdigit():
-        fail("source commit timestamp is invalid")
-
-    archive_name = f"{APPLICATION}-{VERSION}-{TARGET}.tar.gz"
-    archive_output = output_directory / archive_name
-    checksum_output = output_directory / f"{archive_name}.sha256"
-    if archive_output.exists() or archive_output.is_symlink():
-        fail(f"refusing to replace existing archive: {archive_output}")
-    if checksum_output.exists() or checksum_output.is_symlink():
-        fail(f"refusing to replace existing checksum: {checksum_output}")
-
-    temporary = Path(tempfile.mkdtemp(prefix="xscs-release-"))
-    published_archive = False
-    try:
-        releases = temporary / "releases"
-        root = releases / VERSION
-        web_stage = temporary / "web"
-        for directory in [root / "bin", root / "systemd", root / "config", web_stage]:
-            directory.mkdir(parents=True, exist_ok=False)
-
-        run(["npm", "ci"], cwd=source / "web")
-        builder = source / "web/node_modules/.bin/xcss-build-server"
-        build_config = source / "xcss-web-build.json"
-        run([os.fspath(builder), "--config", os.fspath(build_config), "--mode", "release", "--web-only", "--no-install", "--dist", os.fspath(web_stage)], cwd=source)
-
-        cargo_target = Path(
-            os.environ.get("XSCS_RELEASE_CARGO_TARGET_DIR", source / "target")
-        )
-        if not cargo_target.is_absolute():
-            fail("XSCS_RELEASE_CARGO_TARGET_DIR must be absolute")
-        build_environment = os.environ.copy()
-        build_environment.update(
-            {
-                "CARGO_TARGET_DIR": os.fspath(cargo_target),
-                "CARGO_INCREMENTAL": "0",
-                "XSCS_SOURCE_REVISION": revision,
-            }
-        )
-        run([os.fspath(builder), "--config", os.fspath(build_config), "--mode", "release", "--rust-only", "--no-install", "--dist", os.fspath(web_stage), "--source-revision", revision], cwd=source, env=build_environment)
-        built_binary = cargo_target / TARGET / "release/xscs"
-        if not built_binary.is_file() or built_binary.is_symlink():
-            fail("Cargo did not produce the expected release binary")
-
-        shutil.copyfile(built_binary, root / "bin/xscs")
-        shutil.copyfile(
-            source / "deploy/xscs.service",
-            root / "systemd/xscs.service",
-        )
-        shutil.copyfile(source / "docs/operations.md", root / "README.md")
-        shutil.copyfile(source / "deploy/install.sh", root / "install.sh")
-        shutil.copyfile(source / "config/config.json.example", root / "config/config.json.example")
-        inventory = run([os.fspath(built_binary), "web-assets"], cwd=source, capture=True).stdout
-        if not inventory.endswith(b"\n"):
-            fail("compiled Web inventory must be one newline-terminated JSON document")
-        (root / "web-assets.json").write_bytes(inventory[:-1])
-
-        executable_paths = [root / "bin/xscs", root / "install.sh"]
-        for path in executable_paths:
-            path.chmod(0o555)
-        for path in root.rglob("*"):
-            if path.is_symlink():
-                fail(f"release staging contains a symbolic link: {path}")
-            if path.is_dir():
-                path.chmod(0o555)
-            elif path not in executable_paths:
-                path.chmod(0o444)
-
-        run(
-            ["python3", os.fspath(source / "scripts/write-release-manifest.py"), os.fspath(root)],
-            cwd=source,
-        )
-        root.chmod(0o555)
-        run(
-            [
-                os.fspath(root / "bin/xscs"),
-                "verify-release",
-                "--root",
-                os.fspath(root),
-            ],
-            cwd=Path("/"),
-        )
-        require_clean_source(source)
-
-        archive = temporary / archive_name
-        archive_members = temporary / "archive-members"
-        files = []
-        directories = [Path(VERSION)]
-        for path in root.rglob("*"):
-            member = Path(VERSION) / path.relative_to(root)
-            if path.is_dir():
-                directories.append(member)
-            else:
-                files.append(member)
-        files.sort(key=lambda path: path.as_posix())
-        directories.sort(key=lambda path: (-len(path.parts), path.as_posix()))
-        archive_members.write_bytes(
-            b"\0".join(os.fspath(path).encode("ascii") for path in [*files, *directories])
-            + b"\0"
-        )
-        run(
-            [
-                "tar",
-                "--create",
-                "--gzip",
-                "--file",
-                os.fspath(archive),
-                "--directory",
-                os.fspath(releases),
-                "--sort=name",
-                f"--mtime=@{source_epoch_text}",
-                "--owner=0",
-                "--group=0",
-                "--numeric-owner",
-                "--format=posix",
-                "--pax-option=delete=atime,delete=ctime",
-                "--no-recursion",
-                "--null",
-                "--files-from",
-                os.fspath(archive_members),
-            ],
-            cwd=source,
-        )
-
-        extracted_releases = temporary / "extracted/opt/isarmg/xscs/releases"
-        extracted_releases.mkdir(parents=True)
-        run(
-            [
-                "tar",
-                "--extract",
-                "--gzip",
-                "--file",
-                os.fspath(archive),
-                "--directory",
-                os.fspath(extracted_releases),
-                "--no-same-owner",
-                "--same-permissions",
-                "--delay-directory-restore",
-            ],
-            cwd=source,
-        )
-        extracted = extracted_releases / VERSION
-        if sorted(path.name for path in extracted_releases.iterdir()) != [VERSION]:
-            fail("release archive has an unexpected top-level layout")
-        run(
-            [
-                os.fspath(extracted / "bin/xscs"),
-                "verify-release",
-                "--root",
-                os.fspath(extracted),
-            ],
-            cwd=Path("/"),
-        )
-        relocated_smoke(extracted, temporary)
-
-        digest = hashlib.sha256(archive.read_bytes()).hexdigest()
-        checksum = temporary / f"{archive_name}.sha256"
-        checksum.write_text(f"{digest}  {archive_name}\n", encoding="ascii")
-        checksum.chmod(0o444)
-        copy_exclusive(archive, archive_output)
-        published_archive = True
-        try:
-            copy_exclusive(checksum, checksum_output)
+            with archive.open("xb") as destination,staged_archive.open("rb") as source:
+                created_archive=True
+                shutil.copyfileobj(source,destination);destination.flush();os.fsync(destination.fileno())
+            with checksum.open("x") as destination:
+                created_checksum=True
+                destination.write(f"{digest}  {archive.name}\n");destination.flush();os.fsync(destination.fileno())
         except BaseException:
-            archive_output.unlink(missing_ok=True)
-            published_archive = False
+            if created_archive:archive.unlink(missing_ok=True)
+            if created_checksum:checksum.unlink(missing_ok=True)
             raise
-        directory_descriptor = os.open(
-            output_directory, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
-        )
-        try:
-            os.fsync(directory_descriptor)
-        finally:
-            os.close(directory_descriptor)
-        print(archive_output)
-        print(checksum_output)
-    finally:
-        if published_archive and not checksum_output.exists():
-            archive_output.unlink(missing_ok=True)
-        chmod_tree_for_cleanup(temporary)
-        shutil.rmtree(temporary)
+    print(archive)
+    print(checksum)
 
-
-if __name__ == "__main__":
-    main()
+if __name__=="__main__":main()

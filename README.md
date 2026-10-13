@@ -1,25 +1,17 @@
-# xscs
+# XSCS
 
-Sunshine 管理服务：管理员认证、设备配对、实例配置、任务与日志，内嵌 Web 管理界面。服务端支持 Linux x86_64 GNU；需要 Rust 1.99.0、Node.js 26.7.0 编译。
+XSCS pairs Sunshine devices, persists authenticated remote operations and provides the administrator control plane.
 
-## 快速部署
-
-解压发行包后执行以下首次安装步骤，HTTPS 由部署入口提供：
-
-```bash
-cp config/config.json.example ./my-config.json
-${EDITOR:-vi} ./my-config.json
-read -rs -p '管理员密码: ' password; printf '\n'
-printf '%s\n' "$password" | sudo ./install.sh setup ./my-config.json admin
-unset password
-sudo systemctl enable --now xscs
-```
-
-## 源码构建
+The server runs on x86_64 GNU/Linux. Its executable has one runtime entry point:
 
 ```sh
-npm ci --prefix web
-web/node_modules/.bin/xcss-build-server --config xcss-web-build.json --mode release --no-install --source-revision "$(git rev-parse HEAD)"
+xscs --root /opt/isarmg/xscs
 ```
 
-构建输出位于 `target/x86_64-unknown-linux-gnu/release/xscs`。完整配置、初始化、编译与运维见[文档](docs/README.md)。
+Configuration is `ROOT/config/config.json`. State defaults to `ROOT/state`; an explicit `data_dir` may select external instance data. Logs and transient runtime files always use `ROOT/logs` and `ROOT/run`. Configuration files are owned by the service account, with directory mode 0700 and file mode 0600.
+
+Installation, upgrades and offline account maintenance are supplied by the separately maintained [XSSI](https://github.com/isarmg/xssi) scripts and signed `libexec/setup` helper. The server executable only runs the service. Upgrade scripts verify the downloaded package before stopping every writer, then use XSSC for locked backups, declared migration, replacement and readiness checks. Uninstallation is managed by the operator.
+
+The server manages application authentication, verified instance and file quotas, and bounded resource use. It does not identify client IP addresses or configure any reverse proxy.
+
+See [configuration](docs/configuration.md), [operations](docs/operations.md), [development](docs/development.md) and [feature inventory](docs/feature-inventory-and-tradeoffs.md).

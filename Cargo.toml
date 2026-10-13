@@ -9,7 +9,7 @@ lto = "thin"
 strip = "symbols"
 
 [workspace.package]
-version = "1.0.3"
+version = "1.0.4"
 edition = "2024"
 rust-version = "1.99"
 authors = ["sarmg <isarmg@163.com>"]
@@ -34,7 +34,7 @@ http-body-util = { version = "0.1.5" }
 rand = { version = "0.10.3" }
 reqwest = { version = "0.13.5", default-features = false, features = ["json", "rustls"] }
 rustix = { version = "1.1.5", features = ["fs", "process"] }
-xcss = { git = "https://github.com/isarmg/xcss.git", rev = "92f24f73ad629ac722f4f0632898b214edc76ead", version = "=1.0.11", features = ["tracing"] }
+xcss = { git = "https://github.com/isarmg/xcss.git", rev = "b9b5858088510d0bf6832044353c92d09ee123fe", version = "=1.0.13", features = ["tracing"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = { version = "1.0.151" }
 sha2 = { version = "0.11.0" }

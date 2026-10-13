@@ -2955,8 +2955,8 @@ checksum = "3ad82d2a33cdc9674dc7465672f271e096168fcdbe0f799d9e6db8c5892679dc"
 
 [[package]]
 name = "xcss"
-version = "1.0.11"
-source = "git+https://github.com/isarmg/xcss.git?rev=92f24f73ad629ac722f4f0632898b214edc76ead#92f24f73ad629ac722f4f0632898b214edc76ead"
+version = "1.0.13"
+source = "git+https://github.com/isarmg/xcss.git?rev=b9b5858088510d0bf6832044353c92d09ee123fe#b9b5858088510d0bf6832044353c92d09ee123fe"
 dependencies = [
  "aes-gcm",
  "anyhow",
@@ -2976,7 +2976,6 @@ dependencies = [
  "http-body-util",
  "hyper",
  "hyper-util",
- "ipnet",
  "libc",
  "libsqlite3-sys",
  "log",
@@ -3004,7 +3003,7 @@ dependencies = [
 
 [[package]]
 name = "xscs"
-version = "1.0.3"
+version = "1.0.4"
 dependencies = [
  "anyhow",
  "async-trait",
