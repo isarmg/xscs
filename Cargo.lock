@@ -3101,7 +3101,7 @@ dependencies = [
 
 [[package]]
 name = "xscs-protocol"
-version = "1.0.1"
+version = "1.0.0"
 dependencies = [
  "hex",
  "schemars",
