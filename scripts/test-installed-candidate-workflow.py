@@ -56,6 +56,8 @@ class CandidateWorkflow(unittest.TestCase):
             self.assertIn('steps.' + cache + '.outputs.cache-primary-key', lane)
         for version in ('cargo-audit --version 0.22.2', 'cargo-cyclonedx --version 0.5.9', 'node-version: 26.7.0'):
             self.assertIn(version, INSTALLED)
+        self.assertIn("cargo audit --version | grep -Fx 'cargo-audit-audit 0.22.2'", INSTALLED)
+        self.assertIn("cargo cyclonedx --version | grep -Fx 'cargo-cyclonedx-cyclonedx 0.5.9'", INSTALLED)
         self.assertIn('sha256sum --check SHA256SUMS', INSTALLED)
         self.assertIn('if: ${{ always() }}', INSTALLED)
         self.assertIn('path: ${{ runner.temp }}/install-diagnostics', INSTALLED)

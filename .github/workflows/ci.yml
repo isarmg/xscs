@@ -249,8 +249,8 @@ jobs:
           fi
           (cd "$tools" && sha256sum --check SHA256SUMS)
           export PATH="$tools/bin:$PATH"
-          test "$(cargo audit --version)" = 'cargo-audit 0.22.2'
-          test "$(cargo cyclonedx --version)" = 'cargo-cyclonedx-cyclonedx 0.5.9'
+          cargo audit --version | grep -Fx 'cargo-audit-audit 0.22.2'
+          cargo cyclonedx --version | grep -Fx 'cargo-cyclonedx-cyclonedx 0.5.9'
           printf '%s\n' "$tools/bin" >> "$GITHUB_PATH"
           revision="$(python3 -I -B -c 'import pathlib,re; raw=pathlib.Path("config/xssi.lock").read_text(encoding="ascii"); match=re.fullmatch(r"git_rev=([0-9a-f]{40})\n",raw); assert match and match[1]!="0"*40; print(match[1])')"
           installer="$RUNNER_TEMP/install-xssi"
