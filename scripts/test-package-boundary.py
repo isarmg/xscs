@@ -12,6 +12,12 @@ module=importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
 
 class PackageBoundaryTests(unittest.TestCase):
+    def test_package_retains_original_repository_license(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            staged=Path(temporary)
+            module.stage_original_notices(staged)
+            self.assertEqual((staged/"LICENSE").read_bytes(),(module.SOURCE/"LICENSE-APACHE").read_bytes())
+
     def test_mutable_ambiguous_or_foreign_installer_sources_fail_before_building(self):
         with tempfile.TemporaryDirectory() as temporary:
             root=Path(temporary);(root/"config").mkdir()
