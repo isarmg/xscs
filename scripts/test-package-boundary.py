@@ -2,6 +2,7 @@
 import importlib.util
 import json
 from pathlib import Path
+import subprocess
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -12,6 +13,76 @@ module=importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
 
 class PackageBoundaryTests(unittest.TestCase):
+    def create_source(self,parent:Path)->tuple[Path,str]:
+        source=parent/"original";source.mkdir()
+        subprocess.run(["git","init","--quiet",str(source)],check=True)
+        (source/".gitignore").write_text("/web/dist/\n/web/node_modules/\n")
+        (source/"web").mkdir()
+        (source/"web/main.js").write_text("export const value = 'actual source';\n")
+        executable=source/"build";executable.write_text("#!/bin/sh\nexit 0\n");executable.chmod(0o755)
+        subprocess.run(["git","-C",str(source),"add","."],check=True)
+        self.commit_source(source)
+        return source,module.run(["git","rev-parse","HEAD"],cwd=source)
+
+    def commit_source(self,source:Path)->None:
+        subprocess.run(["git","-C",str(source),"-c","user.name=Package fixture",
+                        "-c","user.email=fixture@example.invalid","commit","--quiet","-m","Own disposable source"],
+                       check=True)
+
+    def test_private_current_checkout_has_independent_files_and_local_web_output(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            parent=Path(temporary);source,revision=self.create_source(parent)
+            with patch.object(module,"SOURCE",source):
+                private=module.private_source_checkout(parent/"private",revision)
+            original=source/"web/main.js";copied=private/"web/main.js"
+            self.assertEqual(copied.read_bytes(),original.read_bytes())
+            self.assertNotEqual((copied.stat().st_dev,copied.stat().st_ino),
+                                (original.stat().st_dev,original.stat().st_ino))
+            self.assertEqual(copied.stat().st_nlink,1)
+            self.assertEqual((private/"build").stat().st_mode&0o777,0o755)
+            distribution=private/"web/dist";distribution.mkdir()
+            (distribution/"index.html").write_text("Owned rendered output\n")
+            self.assertEqual(distribution.relative_to(private/"web").as_posix(),"dist")
+            module.verify_source_checkout(private,revision)
+            module.verify_source_checkout(source,revision)
+            self.assertFalse((source/"web/dist").exists())
+            copied.write_text("Changed private input\n")
+            with self.assertRaisesRegex(ValueError,"source changed"):
+                module.verify_source_checkout(private,revision)
+            self.assertEqual(original.read_text(),"export const value = 'actual source';\n")
+
+    def test_private_build_rejects_dirty_original_before_creating_checkout(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            parent=Path(temporary);source,revision=self.create_source(parent)
+            (source/"web/main.js").write_text("Uncommitted source\n")
+            with patch.object(module,"SOURCE",source):
+                with self.assertRaisesRegex(ValueError,"source changed"):
+                    module.private_source_checkout(parent/"private",revision)
+            self.assertFalse((parent/"private").exists())
+
+    def test_private_build_requires_current_exact_source_revision(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            parent=Path(temporary);source,revision=self.create_source(parent)
+            (source/"web/main.js").write_text("New committed input\n")
+            subprocess.run(["git","-C",str(source),"add","."],check=True);self.commit_source(source)
+            with patch.object(module,"SOURCE",source):
+                with self.assertRaisesRegex(ValueError,"source changed"):
+                    module.private_source_checkout(parent/"private",revision)
+                with self.assertRaisesRegex(ValueError,"exact current"):
+                    module.private_source_checkout(parent/"private","main")
+            self.assertFalse((parent/"private").exists())
+
+    def test_private_build_rejects_committed_links_before_checkout(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            parent=Path(temporary);source,_=self.create_source(parent)
+            (source/"linked-input").symlink_to("web/main.js")
+            subprocess.run(["git","-C",str(source),"add","linked-input"],check=True);self.commit_source(source)
+            revision=module.run(["git","rev-parse","HEAD"],cwd=source)
+            with patch.object(module,"SOURCE",source):
+                with self.assertRaisesRegex(ValueError,"unsupported paths or links"):
+                    module.private_source_checkout(parent/"private",revision)
+            self.assertFalse((parent/"private").exists())
+
     def test_package_retains_original_repository_license(self):
         with tempfile.TemporaryDirectory() as temporary:
             staged=Path(temporary)
