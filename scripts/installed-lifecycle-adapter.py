@@ -5,7 +5,7 @@ import secrets
 PRODUCT = 'xscs'
 SERVICES = ('xscs.service',)
 ACCOUNT = 'isarmg-xscs'
-RETAINED_FILES = ('state/state.sqlite3',)
+RETAINED_FILES = ('state/xscs.sqlite3', 'state/secrets.json')
 
 
 def configure(config, root, shared, port):
@@ -51,4 +51,5 @@ def persisted(request, session, state, require):
 
 
 def retained(root, shared, state, require):
-    require((root / 'state/state.sqlite3').is_file(), 'Operator uninstall did not retain private data')
+    require(all((root / name).is_file() for name in RETAINED_FILES),
+            'Operator uninstall did not retain the database and instance secrets')

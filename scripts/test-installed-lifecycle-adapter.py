@@ -4,6 +4,7 @@ import importlib.util
 import json
 from pathlib import Path
 import unittest
+import tempfile
 
 spec = importlib.util.spec_from_file_location('adapter', Path(__file__).with_name('installed-lifecycle-adapter.py'))
 adapter = importlib.util.module_from_spec(spec)
@@ -16,6 +17,21 @@ def require(condition, message):
 
 
 class AdapterContract(unittest.TestCase):
+    def test_retained_files_match_product_database_and_secrets(self):
+        self.assertEqual(adapter.RETAINED_FILES, ('state/xscs.sqlite3', 'state/secrets.json'))
+        source = Path(__file__).resolve().parents[1] / 'crates/server/src'
+        self.assertIn('data_dir.join("xscs.sqlite3")', (source / 'config.rs').read_text())
+        self.assertIn('data_file("secrets.json")', (source / 'installation_definition.rs').read_text())
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / 'state').mkdir()
+            for relative in adapter.RETAINED_FILES:
+                (root / relative).write_bytes(b'private test data')
+            adapter.retained(root, root, {}, require)
+            (root / 'state/secrets.json').unlink()
+            with self.assertRaisesRegex(RuntimeError, 'database and instance secrets'):
+                adapter.retained(root, root, {}, require)
+
     def test_production_configuration(self):
         config = {'development': True}
         adapter.configure(config, Path('/root'), Path('/shared'), 12345)
