@@ -71,7 +71,7 @@ SQLite 查询最多 3 秒，每实例最多一个历史读取，全服务最多�
 ## 验证边界
 
 协议与固定上游版本依据见 [Client 管理协议](client-management-v1.md)，发行与实测范围见
-[当前发行说明](releases/1.0.0.md)。
+[当前发行说明](releases/1.0.1.md)。
 
 `web` 中的 `npm run test:browser` 覆盖管理界面；构建 Manager 和 Client 开发二进制后，
 `node tests/client-end-to-end.mjs` 验证真实浏览器、Manager、独立 Client 与 HTTPS/WSS，
