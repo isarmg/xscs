@@ -1,3 +1,13 @@
+#[path = "src/config_definition.rs"]
+mod config_definition;
+#[path = "src/database_definition.rs"]
+mod database_definition;
+#[path = "src/installation_definition.rs"]
+mod installation_definition;
+#[path = "src/persistent_crypto_definition.rs"]
+mod persistent_crypto_definition;
+#[path = "src/secret_definition.rs"]
+mod secret_definition;
 #[path = "../../scripts/server-target-gate.rs"]
 mod target_gate;
 use std::{collections::BTreeSet, env, fs};
@@ -83,10 +93,10 @@ fn main() {
         "cargo:rerun-if-changed={}",
         product_root.join("release.json").display()
     );
-    emit_offline_metadata();
+    emit_installation_metadata();
 }
 
-fn emit_offline_metadata() {
+fn emit_installation_metadata() {
     use sha2::{Digest, Sha256};
     use xcss::contracts::{StateContract, StateResource, StateResourceKind, StateSchemaIdentity};
     let Some(destination) = std::env::var_os("XSSI_BUILD_METADATA_DIR") else {
@@ -99,22 +109,26 @@ fn emit_offline_metadata() {
     );
     let revision = std::env::var("XSCS_SOURCE_REVISION")
         .expect("release metadata requires a source-bound build");
-    let hash = "b3fdff2217ea2ba4a384e3ade29cbf87a949d63392bdff3895916ff2377bd1ba";
-    let schema =
-        xcss::contracts::SchemaIdentity::new("xscs", "1.0.0", 1, hash).expect("schema identity");
+    let hash = database_definition::SCHEMA_SHA256;
+    let schema = xcss::contracts::SchemaIdentity::new(
+        database_definition::APPLICATION,
+        database_definition::SCHEMA_APPLICATION_VERSION,
+        u64::try_from(database_definition::SCHEMA_REVISION)
+            .expect("schema revision is non-negative"),
+        hash,
+    )
+    .expect("schema identity");
     let contract = StateContract {
         contract_version: xcss::contracts::STATE_CONTRACT_VERSION,
-        application: "xscs".into(),
+        application: database_definition::APPLICATION.into(),
         application_version: std::env::var("CARGO_PKG_VERSION").unwrap(),
         source_revision: revision.clone(),
         schema: Some(StateSchemaIdentity {
-            revision: 1,
+            revision: u64::try_from(database_definition::SCHEMA_REVISION)
+                .expect("schema revision is non-negative"),
             sha256: hash.into(),
         }),
-        maintenance_locks: vec![
-            ".state-instance.lock".into(),
-            ".state-maintenance.lock".into(),
-        ],
+        maintenance_locks: vec![".state-instance.lock".into()],
         resources: vec![
             StateResource {
                 name: "state".into(),
@@ -137,7 +151,7 @@ fn emit_offline_metadata() {
         .map(|byte| format!("{byte:02x}"))
         .collect::<String>();
     let identity = xcss::contracts::ReleaseIdentity {
-        product: "xscs".into(),
+        product: database_definition::APPLICATION.into(),
         version: std::env::var("CARGO_PKG_VERSION").unwrap(),
         source_revision: revision,
         target: xcss::server_target::SERVER_TARGET_TRIPLE.into(),
@@ -159,4 +173,10 @@ fn emit_offline_metadata() {
         .join("xcss-web-assets.rs.manifest.json");
     std::fs::copy(generated, destination.join("xscs-web-assets.json"))
         .expect("copy exact embedded Web manifest");
+    installation_definition::emit(
+        &destination,
+        &identity,
+        &schema,
+        include_str!("../../schema/generated/current_schema.sql"),
+    );
 }

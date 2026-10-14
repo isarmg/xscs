@@ -1,3 +1,5 @@
+#[path = "support/database.rs"]
+mod fixture_database;
 use std::{
     fs,
     path::Path,
@@ -118,7 +120,7 @@ async fn exact_current_schema_is_durable_and_self_identifying() {
     let path = directory.path().join("xscs.sqlite3");
     let url = database_url(&path);
 
-    let pool = db::open_or_initialize(&url).await.unwrap();
+    let pool = fixture_database::open_or_initialize(&url).await.unwrap();
     assert!(db::ready(&pool).await);
     assert_eq!(
         database_schema::actual_schema_sha256(&pool).await.unwrap(),
@@ -143,7 +145,7 @@ async fn exact_current_schema_is_durable_and_self_identifying() {
         (
             1,
             database_schema::APPLICATION.to_string(),
-            "1.0.0".to_string(),
+            "v1".to_string(),
             database_schema::SCHEMA_REVISION,
             database_schema::SCHEMA_SHA256.to_string(),
         )
@@ -180,7 +182,11 @@ async fn empty_unknown_schema_noncurrent_version_and_drift_are_read_only_rejecti
         let empty = directory.path().join("empty.sqlite3");
         fs::File::create(&empty).unwrap();
         let before = stable_directory_snapshot(directory.path());
-        assert!(db::open_or_initialize(&database_url(&empty)).await.is_err());
+        assert!(
+            fixture_database::open_or_initialize(&database_url(&empty))
+                .await
+                .is_err()
+        );
         assert_snapshot_unchanged(&before, &stable_directory_snapshot(directory.path()));
     }
 
@@ -195,7 +201,7 @@ async fn empty_unknown_schema_noncurrent_version_and_drift_are_read_only_rejecti
         let before = stable_directory_snapshot(directory.path());
         assert_live_wal(&before, &unknown_schema);
         assert!(
-            db::open_or_initialize(&database_url(&unknown_schema))
+            fixture_database::open_or_initialize(&database_url(&unknown_schema))
                 .await
                 .is_err()
         );
@@ -206,7 +212,7 @@ async fn empty_unknown_schema_noncurrent_version_and_drift_are_read_only_rejecti
     {
         let directory = tempfile::tempdir().unwrap();
         let wrong_version = directory.path().join("wrong-version.sqlite3");
-        let pool = db::open_or_initialize(&database_url(&wrong_version))
+        let pool = fixture_database::open_or_initialize(&database_url(&wrong_version))
             .await
             .unwrap();
         close_sqlite_workers(&pool).await;
@@ -219,7 +225,7 @@ async fn empty_unknown_schema_noncurrent_version_and_drift_are_read_only_rejecti
         let before = stable_directory_snapshot(directory.path());
         assert_live_wal(&before, &wrong_version);
         assert!(
-            db::open_or_initialize(&database_url(&wrong_version))
+            fixture_database::open_or_initialize(&database_url(&wrong_version))
                 .await
                 .is_err()
         );
@@ -230,7 +236,7 @@ async fn empty_unknown_schema_noncurrent_version_and_drift_are_read_only_rejecti
     {
         let directory = tempfile::tempdir().unwrap();
         let drifted = directory.path().join("drifted.sqlite3");
-        let pool = db::open_or_initialize(&database_url(&drifted))
+        let pool = fixture_database::open_or_initialize(&database_url(&drifted))
             .await
             .unwrap();
         close_sqlite_workers(&pool).await;
@@ -240,7 +246,7 @@ async fn empty_unknown_schema_noncurrent_version_and_drift_are_read_only_rejecti
         let before = stable_directory_snapshot(directory.path());
         assert_live_wal(&before, &drifted);
         assert!(
-            db::open_or_initialize(&database_url(&drifted))
+            fixture_database::open_or_initialize(&database_url(&drifted))
                 .await
                 .is_err()
         );
@@ -256,7 +262,7 @@ async fn database_symlinks_and_hardlinks_are_rejected_without_mutation() {
 
     let directory = tempfile::tempdir().unwrap();
     let original = directory.path().join("original.sqlite3");
-    let pool = db::open_or_initialize(&database_url(&original))
+    let pool = fixture_database::open_or_initialize(&database_url(&original))
         .await
         .unwrap();
     close_sqlite_workers(&pool).await;
@@ -265,7 +271,7 @@ async fn database_symlinks_and_hardlinks_are_rejected_without_mutation() {
     symlink(&original, &symbolic).unwrap();
     let before = stable_directory_snapshot(directory.path());
     assert!(
-        db::open_or_initialize(&database_url(&symbolic))
+        fixture_database::open_or_initialize(&database_url(&symbolic))
             .await
             .is_err()
     );
@@ -275,6 +281,10 @@ async fn database_symlinks_and_hardlinks_are_rejected_without_mutation() {
     let hard = directory.path().join("hard.sqlite3");
     fs::hard_link(&original, &hard).unwrap();
     let before = stable_directory_snapshot(directory.path());
-    assert!(db::open_or_initialize(&database_url(&hard)).await.is_err());
+    assert!(
+        fixture_database::open_or_initialize(&database_url(&hard))
+            .await
+            .is_err()
+    );
     assert_snapshot_unchanged(&before, &stable_directory_snapshot(directory.path()));
 }

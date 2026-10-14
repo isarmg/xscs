@@ -9,7 +9,7 @@ use xscs::{
 #[derive(Parser)]
 #[command(name = "xscs", version, about = "Sunshine management service")]
 struct Cli {
-    #[arg(long, default_value = "/opt/isarmg/xscs")]
+    #[arg(long)]
     root: PathBuf,
 }
 
@@ -35,17 +35,13 @@ async fn serve_with_config(config: ServeConfig) -> anyhow::Result<()> {
     let signals = xcss::server_runtime::ProcessSignals::install()?;
     let listeners = xcss::server_runtime::BoundListeners::bind([config.bind])?;
     let transport = xcss::server_runtime::HttpServer::new(listeners, signals);
-    // Hold both locks for the complete process lifetime. The instance lock
-    // rejects a second worker, while the shared maintenance lock excludes
-    // exclusive state and administrator maintenance.
-    xcss::server_cli::runtime_allowed(&config.data_dir).map_err(xcss::server_cli::CliError)?;
-    xscs::offline::validate_runtime_inputs(&config)?;
+    // Hold instance ownership and the verified database location throughout
+    // runtime. Administrative tools control their own operation lifecycle.
+    xscs::runtime_validation::validate_runtime_inputs(&config)?;
     let directory = xcss::state_file::PrivateStateDirectory::open(&config.data_dir)?;
-    xcss::server_cli::runtime_allowed(directory.path()).map_err(xcss::server_cli::CliError)?;
     let _common_lock = directory.try_instance_lock()?;
-    xcss::server_cli::runtime_allowed(directory.path()).map_err(xcss::server_cli::CliError)?;
     let application_lock = ApplicationLock::acquire(&config.database_url)?;
-    let secrets = xscs::offline::validate_state(&config).await?;
+    let secrets = xscs::runtime_validation::validate_state(&config).await?;
     enable_runtime_logging(&config.root)?;
     tracing::info!(event = "common.config.loaded");
     let pool =
@@ -135,13 +131,9 @@ async fn serve_with_config(config: ServeConfig) -> anyhow::Result<()> {
     Ok(())
 }
 
-static LOG_LAYER: std::sync::OnceLock<xcss::log::XcssStructuredLayer> = std::sync::OnceLock::new();
 fn initialize_logging(log_level: &str) -> anyhow::Result<()> {
     use tracing_subscriber::{layer::SubscriberExt as _, util::SubscriberInitExt as _};
     let layer = xcss::log::XcssStructuredLayer::new("xscs")?;
-    LOG_LAYER
-        .set(layer.clone())
-        .map_err(|_| anyhow::anyhow!("logging already initialized"))?;
     tracing_subscriber::registry()
         .with(tracing_subscriber::EnvFilter::try_new(log_level)?)
         .with(layer)
@@ -155,9 +147,6 @@ fn enable_runtime_logging(root: &std::path::Path) -> anyhow::Result<()> {
         "xscs",
         xcss::log::LogRetention::default(),
     )?;
-    LOG_LAYER
-        .get()
-        .ok_or_else(|| anyhow::anyhow!("logging is unavailable"))?
-        .set_rotating_file(file)?;
+    xcss::log::install_rotating_file(file)?;
     Ok(())
 }

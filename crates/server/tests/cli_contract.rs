@@ -100,79 +100,53 @@ fn runtime_rejects_uninitialized_state_without_creating_installation_state() {
     assert!(!output.status.success());
     assert_eq!(snapshot(&root), before);
 }
+#[path = "support/database.rs"]
+mod fixture_database;
 #[tokio::test]
-async fn offline_state_checks_are_read_only_and_reset_preserves_instance_keys() {
-    let (_temp, root, config) = fixture();
-    let before = snapshot(&root);
-    let report = xscs::offline::validate_config(&root, &config)
-        .await
-        .unwrap();
-    assert_eq!(report.data_dir, root.join("state"));
-    assert_eq!(snapshot(&root), before);
-    assert!(xscs::offline::check(&root, &config).await.is_err());
-    assert_eq!(snapshot(&root), before);
-    xscs::offline::initialize(&root, &config, "fixture-admin", "fixture-password-2026")
-        .await
-        .unwrap();
-    let key = fs::read(root.join("state/secrets.json")).unwrap();
-    let before = snapshot(&root);
-    xscs::offline::check(&root, &config).await.unwrap();
-    xscs::offline::check(&root, &config).await.unwrap();
-    assert_eq!(snapshot(&root), before);
-    let gate = root.join("state/.state-maintenance-pending.json");
-    fs::write(&gate, b"fixture gate owned by the offline coordinator").unwrap();
-    fs::set_permissions(&gate, fs::Permissions::from_mode(0o600)).unwrap();
-    let before = snapshot(&root);
-    xscs::offline::check(&root, &config).await.unwrap();
-    assert_eq!(snapshot(&root), before);
-    fs::remove_file(gate).unwrap();
-    assert!(
-        xscs::offline::initialize(&root, &config, "fixture-admin", "another-password-2026")
-            .await
-            .is_err()
-    );
-    xscs::offline::reset_password(&root, &config, "fixture-admin", "replacement-password-2026")
-        .await
-        .unwrap();
-    assert_eq!(fs::read(root.join("state/secrets.json")).unwrap(), key);
-    xscs::offline::check(&root, &config).await.unwrap();
-    let schema = report.schema_identity;
-    let before = snapshot(&root);
-    assert!(
-        xscs::offline::migrate(&root, &config, &root.join("wrong-state"), &schema, &schema)
-            .await
-            .is_err()
-    );
-    assert_eq!(snapshot(&root), before);
-    xscs::offline::migrate(&root, &config, &root.join("state"), &schema, &schema)
-        .await
-        .unwrap();
-    assert_eq!(snapshot(&root), before);
-    assert_eq!(fs::read(root.join("state/secrets.json")).unwrap(), key);
-    let before = snapshot(&root);
-    xscs::offline::check(&root, &config).await.unwrap();
-    assert_eq!(snapshot(&root), before);
-}
-
-#[tokio::test]
-async fn lightweight_startup_inputs_do_not_replace_complete_read_only_state_validation() {
+async fn runtime_rejects_invalid_installed_administrator_without_repair() {
     use sqlx::Connection as _;
-    let (_temp, root, config) = fixture();
-    xscs::offline::initialize(&root, &config, "fixture-admin", "fixture-password-2026")
+    let (_temp, root, _config) = fixture();
+    fixture_database::initialize_root(&root).await.unwrap();
+    let path = root.join("state").join(concat!("xscs", ".sqlite3"));
+    let mut connection = sqlx::SqliteConnection::connect(&format!("sqlite://{}", path.display()))
         .await
         .unwrap();
-    let value = xscs::ServeConfig::from_root_sources(&root, &config).unwrap();
-    let mut connection = sqlx::SqliteConnection::connect(&value.database_url)
+    sqlx::query("UPDATE _common_administrators SET password_hash='invalid-persisted-hash'")
+        .execute(&mut connection)
         .await
         .unwrap();
-    sqlx::query("UPDATE _common_administrators SET password_hash = 'invalid-persisted-hash'")
+    sqlx::query("PRAGMA wal_checkpoint(TRUNCATE)")
         .execute(&mut connection)
         .await
         .unwrap();
     connection.close().await.unwrap();
+    let before = fs::read(&path).unwrap();
+    for _ in 0..3 {
+        let output = Command::new(BINARY)
+            .env_clear()
+            .arg("--root")
+            .arg(&root)
+            .output()
+            .unwrap();
+        assert!(!output.status.success());
+        assert_eq!(fs::read(&path).unwrap(), before);
+        assert!(fs::read_dir(root.join("run")).unwrap().next().is_none());
+        assert!(!String::from_utf8_lossy(&output.stderr).contains("fixture-password-2026"));
+    }
+}
+#[tokio::test]
+async fn runtime_rejects_malformed_instance_key_without_recreating_it() {
+    let (_temp, root, _config) = fixture();
+    fixture_database::initialize_root(&root).await.unwrap();
+    let key = root.join("state/secrets.json");
+    fs::write(&key, b"{}").unwrap();
     let before = snapshot(&root);
-    xscs::offline::validate_runtime_inputs(&value).unwrap();
-    assert_eq!(snapshot(&root), before);
-    assert!(xscs::offline::check(&root, &config).await.is_err());
+    let output = Command::new(BINARY)
+        .env_clear()
+        .arg("--root")
+        .arg(&root)
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
     assert_eq!(snapshot(&root), before);
 }

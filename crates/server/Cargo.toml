@@ -10,6 +10,7 @@ description = "xscs: Sunshine management server with local authentication"
 publish = false
 
 [dependencies]
+schemars = "=1.2.3"
 hex.workspace = true
 futures-util.workspace = true
 async-trait.workspace = true
@@ -42,6 +43,13 @@ http-body-util.workspace = true
 tower.workspace = true
 
 [build-dependencies]
+anyhow.workspace = true
+base64.workspace = true
+hex.workspace = true
+uuid.workspace = true
+xscs-protocol = { path = "../protocol" }
+schemars = "=1.2.3"
+serde = { workspace = true }
 xcss.workspace = true
 serde_json.workspace = true
 sha2.workspace = true

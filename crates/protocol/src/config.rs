@@ -774,7 +774,7 @@ pub fn validate_snapshot_field(key: &str, value: &str) -> Result<(), InvalidTask
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(untagged)]
 pub enum FieldValue {
     Boolean(bool),

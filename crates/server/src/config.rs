@@ -5,9 +5,10 @@ use std::{
     path::{Path, PathBuf},
 };
 
+#[cfg(test)]
 use anyhow::Context;
+#[cfg(test)]
 use base64::{Engine as _, engine::general_purpose::STANDARD};
-use serde::{Deserialize, Serialize};
 #[cfg(test)]
 use xcss::config::Override;
 use xcss::config::{ConfigSource, EnvMapping, EnvValueKind};
@@ -43,18 +44,27 @@ impl ServeConfig {
         };
 
         let config = normalize_config_path(config)?;
-        let file = xcss::config::read_private_file(&config)?;
+        let file = xcss::config::read_managed_file(
+            &config,
+            cfg!(debug_assertions) && crate::release_contract::SOURCE_REVISION == "unbound",
+        )?;
         let environment = xcss::config::read_environment(ENVIRONMENT, |name| env::var(name).ok())?;
         let loaded = xcss::config::resolve_validated(
             &defaults,
             Some(&file),
             &environment,
             &[],
-            validate_intrinsic,
+            |settings, source| {
+                crate::config_definition::validate(
+                    settings,
+                    root,
+                    crate::release_contract::SOURCE_REVISION != "unbound",
+                    source,
+                )
+            },
         )?;
         let settings = loaded.value;
         let data_dir = settings.data_dir;
-        validate_state_location(root, &data_dir)?;
         let database_url = format!("sqlite://{}", data_dir.join("xscs.sqlite3").display());
         let bind = settings.bind;
         let production = !settings.development;
@@ -79,27 +89,9 @@ impl ServeConfig {
     }
 }
 
-#[derive(Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Settings {
-    data_dir: PathBuf,
-    bind: SocketAddr,
-    development: bool,
-    log_level: String,
-    development_web_dir: Option<String>,
-}
-
-impl Default for Settings {
-    fn default() -> Self {
-        Self {
-            data_dir: PathBuf::from("/opt/isarmg/xscs/state"),
-            bind: "127.0.0.1:18104".parse().expect("valid default bind"),
-            development: false,
-            log_level: "info".into(),
-            development_web_dir: None,
-        }
-    }
-}
+use crate::config_definition::Settings;
+#[cfg(test)]
+use crate::config_definition::validate_intrinsic;
 
 const ENVIRONMENT: &[EnvMapping<'static>] = &[
     EnvMapping {
@@ -171,6 +163,7 @@ fn validate_static_dir(value: &str, production: bool) -> anyhow::Result<PathBuf>
     Ok(fs::canonicalize(root)?)
 }
 
+#[cfg(test)]
 fn decode_key(value: &str) -> anyhow::Result<[u8; 32]> {
     let decoded = STANDARD
         .decode(value.trim())
@@ -274,35 +267,6 @@ mod tests {
     }
 }
 
-fn validate_intrinsic(
-    settings: &Settings,
-    source: ConfigSource,
-) -> Result<(), xcss::config::ConfigError> {
-    let invalid =
-        |path| xcss::config::ConfigError::new(xcss::config::Reason::InvalidValue, path, source);
-    if !settings.data_dir.is_absolute()
-        || settings.data_dir.components().any(|part| {
-            matches!(
-                part,
-                std::path::Component::ParentDir | std::path::Component::CurDir
-            )
-        })
-    {
-        return Err(invalid("/data_dir"));
-    }
-    if !["error", "warn", "info", "debug", "trace", "off"].contains(&settings.log_level.as_str()) {
-        return Err(invalid("/log_level"));
-    }
-    if settings
-        .development_web_dir
-        .as_ref()
-        .is_some_and(|path| !Path::new(path).is_absolute())
-    {
-        return Err(invalid("/development_web_dir"));
-    }
-    Ok(())
-}
-
 #[cfg(test)]
 mod precedence_contract_tests {
     use super::*;
@@ -376,32 +340,19 @@ mod deployment_defaults_tests {
     }
 }
 
-#[derive(Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct SecretsDocument {
-    version: u32,
-    credential_key_id: String,
-    credential_key: String,
-}
+use crate::secret_definition::SecretsDocument;
 impl SecretsDocument {
     fn secret_box(self) -> anyhow::Result<SecretBox> {
-        anyhow::ensure!(
-            self.version == 1 && self.credential_key_id == "primary",
-            "invalid secrets document identity"
-        );
-        let key = decode_key(&self.credential_key)?;
-        anyhow::ensure!(
-            STANDARD.encode(key) == self.credential_key,
-            "credential key must use canonical base64"
-        );
+        let key = self.key()?;
         SecretBox::new(self.credential_key_id, key)
     }
 }
 impl ServeConfig {
+    #[cfg(test)]
     pub fn initialize_secrets(&self) -> anyhow::Result<SecretBox> {
         let document = SecretsDocument {
-            version: 1,
-            credential_key_id: "primary".into(),
+            version: crate::secret_definition::VERSION,
+            credential_key_id: crate::secret_definition::KEY_ID.into(),
             credential_key: STANDARD.encode(xcss::server_secrets::generate_key()?),
         };
         xcss::server_secrets::initialize(&self.data_dir, &document)?;
@@ -442,8 +393,8 @@ mod secrets_contract_tests {
         }
         assert!(
             SecretsDocument {
-                version: 1,
-                credential_key_id: "primary".into(),
+                version: crate::secret_definition::VERSION,
+                credential_key_id: crate::secret_definition::KEY_ID.into(),
                 credential_key: STANDARD.encode([7; 32])
             }
             .secret_box()
@@ -463,36 +414,4 @@ mod secrets_contract_tests {
             assert!(serde_json::from_value::<Settings>(value).is_err());
         }
     }
-}
-
-fn validate_state_location(root: &Path, state: &Path) -> anyhow::Result<()> {
-    anyhow::ensure!(
-        state.is_absolute()
-            && state != Path::new("/")
-            && state.components().all(|part| matches!(
-                part,
-                std::path::Component::RootDir | std::path::Component::Normal(_)
-            )),
-        "state paths must be normalized absolute directories"
-    );
-    anyhow::ensure!(
-        !root.starts_with(state),
-        "state directory cannot contain the installation root"
-    );
-    for name in [
-        "config",
-        "logs",
-        "run",
-        "bin",
-        "libexec",
-        "share",
-        "maintenance",
-    ] {
-        let protected = root.join(name);
-        anyhow::ensure!(
-            !state.starts_with(&protected) && !protected.starts_with(state),
-            "state directory overlaps a protected installation path"
-        );
-    }
-    Ok(())
 }

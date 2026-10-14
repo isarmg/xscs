@@ -48,7 +48,7 @@ pub fn is_supported_sunshine_version(version: &str) -> bool {
     SUPPORTED_SUNSHINE_VERSIONS.contains(&version)
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Binding {
     pub manager_id: Uuid,
@@ -56,7 +56,7 @@ pub struct Binding {
     pub installation_id: Uuid,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum Permission {
     ReadConfig,
@@ -70,19 +70,19 @@ pub enum Permission {
     ControlService,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum RestartPolicy {
     Manual,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ApplicationRef {
     pub fingerprint: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct PreparationCommand {
     #[serde(rename = "do")]
@@ -92,7 +92,7 @@ pub struct PreparationCommand {
     pub elevated: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ApplicationSpec {
     pub name: String,
@@ -160,7 +160,7 @@ impl ApplicationSpec {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ApplicationView {
     pub reference: ApplicationRef,
@@ -179,14 +179,14 @@ pub fn application_reference(application: &ApplicationSpec) -> Result<Applicatio
     })
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ApplicationsSnapshot {
     pub revision: String,
     pub applications: Vec<ApplicationView>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct PairedClient {
     pub uuid: String,
@@ -195,7 +195,7 @@ pub struct PairedClient {
 }
 
 /// A pending Moonlight handshake, obtained from Sunshine rather than entered by the user.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct PendingPairing {
     pub id: String,
@@ -221,21 +221,21 @@ pub fn validate_pending_pairings(pairings: &[PendingPairing]) -> Result<(), Inva
     Ok(())
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct PairedClientsSnapshot {
     pub revision: String,
     pub clients: Vec<PairedClient>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct LogCursor {
     pub revision: String,
     pub before_offset: u64,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct LogPage {
     pub revision: String,
@@ -247,7 +247,7 @@ pub struct LogPage {
     pub redacted: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct DriverStatus {
     pub installed: bool,
@@ -256,14 +256,14 @@ pub struct DriverStatus {
     pub error: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct VirtualInputStatus {
     pub virtualhid: DriverStatus,
     pub vigembus: DriverStatus,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ServiceState {
     Running,
@@ -274,7 +274,7 @@ pub enum ServiceState {
     Unknown,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ServiceAction {
     Start,
@@ -282,7 +282,7 @@ pub enum ServiceAction {
     Restart,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct DiagnosticSnapshot {
     pub sunshine_version: Option<String>,
@@ -293,14 +293,14 @@ pub struct DiagnosticSnapshot {
     pub configuration_revision: Option<String>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum MaintenanceAction {
     ResetDisplayPersistence,
     ResetPortalToken,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Command {
     ReadConfig {},
@@ -378,7 +378,7 @@ pub enum Command {
     },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Task {
     pub protocol: String,
@@ -388,7 +388,7 @@ pub struct Task {
     pub command: Command,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum DeliveryMode {
     Execute,
@@ -396,7 +396,7 @@ pub enum DeliveryMode {
     InspectOnly,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ManagerMessage {
     Task {
@@ -418,7 +418,7 @@ pub enum ManagerMessage {
 
 /// These are execution observations, NOT another persistent task lifecycle.
 /// Manager maps observations into the existing xcss operation transitions.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Report {
     ConfigRead {
@@ -484,7 +484,7 @@ pub enum Report {
     },
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum Rejection {
     InvalidTask,
@@ -503,7 +503,7 @@ pub enum Rejection {
     PairingFailed,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum Uncertainty {
     NoExecutionRecord,
@@ -515,7 +515,7 @@ pub enum Uncertainty {
     ResultTooLarge,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum Effectiveness {
     /// Reading a file does not prove that its settings are used by the running process.
@@ -523,7 +523,7 @@ pub enum Effectiveness {
     AwaitingRestart,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ConfigSnapshot {
     pub revision: String,
@@ -533,7 +533,7 @@ pub struct ConfigSnapshot {
     pub effectiveness: Effectiveness,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Capabilities {
     pub protocol: String,
@@ -554,10 +554,27 @@ pub struct Capabilities {
     pub service_control: bool,
 }
 
+pub const MAX_CLIENT_VERSION_BYTES: usize = 64;
+pub const MAX_STORED_CONFIG_VALUE_BYTES: usize = 512;
+pub const REVISION_HEX_BYTES: usize = 64;
+
+/// Validation used for persistent Manager observations, without Client-report effectiveness checks.
+pub fn validate_stored_snapshot(snapshot: &ConfigSnapshot) -> Result<(), InvalidTask> {
+    validate_revision(&snapshot.revision)?;
+    if !is_supported_sunshine_version(&snapshot.sunshine_version)
+        || snapshot.fields.iter().any(|(key, value)| {
+            !config::contains_field(key) || value.len() > MAX_STORED_CONFIG_VALUE_BYTES
+        })
+    {
+        return Err(InvalidTask);
+    }
+    Ok(())
+}
+
 impl Capabilities {
     /// The current contract defines capabilities; a release label records provenance only.
     pub fn validate(&self) -> Result<(), InvalidTask> {
-        validate_text(&self.client_version, 1, 64)?;
+        validate_text(&self.client_version, 1, MAX_CLIENT_VERSION_BYTES)?;
         if self.protocol != PROTOCOL
             || !is_supported_sunshine_version(&self.sunshine_version)
             || self.managed_fields.len() != config::FIELD_DEFINITIONS.len()
@@ -571,7 +588,7 @@ impl Capabilities {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ClientOs {
     LinuxX86_64,
@@ -580,14 +597,14 @@ pub enum ClientOs {
     MacosAarch64,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ActiveOperation {
     pub operation_id: String,
     pub fingerprint: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ClientMessage {
     Progress {
@@ -968,7 +985,7 @@ fn validate_uuid(value: &str) -> Result<(), InvalidTask> {
 }
 
 pub fn validate_revision(revision: &str) -> Result<(), InvalidTask> {
-    if revision.len() == 64
+    if revision.len() == REVISION_HEX_BYTES
         && revision
             .bytes()
             .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
@@ -1425,4 +1442,241 @@ mod protocol_v1_tests {
         assert_ne!(first, application_reference(&renamed).unwrap());
         assert_eq!(first, application_reference(&application()).unwrap());
     }
+}
+
+/// The strict plaintext stored inside the current operation envelope.
+#[derive(Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct StoredRequest {
+    pub binding: Binding,
+    pub command: Command,
+}
+
+#[derive(Serialize)]
+pub struct CommandStorageContract {
+    pub kind: &'static str,
+    pub action: &'static str,
+    pub resource: &'static str,
+}
+
+pub const COMMAND_STORAGE_CONTRACTS: &[CommandStorageContract] = &[
+    CommandStorageContract {
+        kind: "read_config",
+        action: "sunshine.config.read",
+        resource: "read",
+    },
+    CommandStorageContract {
+        kind: "patch_config",
+        action: "sunshine.config.patch",
+        resource: "write",
+    },
+    CommandStorageContract {
+        kind: "save_config",
+        action: "sunshine.config.save",
+        resource: "write",
+    },
+    CommandStorageContract {
+        kind: "restart",
+        action: "sunshine.restart",
+        resource: "write",
+    },
+    CommandStorageContract {
+        kind: "list_applications",
+        action: "sunshine.applications.list",
+        resource: "read",
+    },
+    CommandStorageContract {
+        kind: "save_application",
+        action: "sunshine.applications.save",
+        resource: "write",
+    },
+    CommandStorageContract {
+        kind: "delete_application",
+        action: "sunshine.applications.delete",
+        resource: "write",
+    },
+    CommandStorageContract {
+        kind: "close_application",
+        action: "sunshine.applications.close",
+        resource: "write",
+    },
+    CommandStorageContract {
+        kind: "upload_cover",
+        action: "sunshine.applications.cover.upload",
+        resource: "write",
+    },
+    CommandStorageContract {
+        kind: "submit_pairing_pin",
+        action: "sunshine.pairing.pin.submit",
+        resource: "write",
+    },
+    CommandStorageContract {
+        kind: "list_pending_pairings",
+        action: "sunshine.pairing.pending.list",
+        resource: "read",
+    },
+    CommandStorageContract {
+        kind: "list_paired_clients",
+        action: "sunshine.pairing.clients.list",
+        resource: "read",
+    },
+    CommandStorageContract {
+        kind: "set_paired_client_enabled",
+        action: "sunshine.pairing.clients.update",
+        resource: "write",
+    },
+    CommandStorageContract {
+        kind: "unpair_client",
+        action: "sunshine.pairing.clients.unpair",
+        resource: "write",
+    },
+    CommandStorageContract {
+        kind: "unpair_all_clients",
+        action: "sunshine.pairing.clients.unpair_all",
+        resource: "write",
+    },
+    CommandStorageContract {
+        kind: "read_logs",
+        action: "sunshine.logs.read",
+        resource: "read",
+    },
+    CommandStorageContract {
+        kind: "read_diagnostics",
+        action: "sunshine.diagnostics.read",
+        resource: "read",
+    },
+    CommandStorageContract {
+        kind: "read_virtual_input_status",
+        action: "sunshine.virtual_input.read",
+        resource: "read",
+    },
+    CommandStorageContract {
+        kind: "run_maintenance",
+        action: "sunshine.maintenance.run",
+        resource: "write",
+    },
+    CommandStorageContract {
+        kind: "read_service_status",
+        action: "sunshine.service.read",
+        resource: "read",
+    },
+    CommandStorageContract {
+        kind: "control_service",
+        action: "sunshine.service.control",
+        resource: "write",
+    },
+];
+
+pub fn command_storage_contract(command: &Command) -> &'static CommandStorageContract {
+    match command {
+        Command::ReadConfig { .. } => &COMMAND_STORAGE_CONTRACTS[0],
+        Command::PatchConfig { .. } => &COMMAND_STORAGE_CONTRACTS[1],
+        Command::SaveConfig { .. } => &COMMAND_STORAGE_CONTRACTS[2],
+        Command::Restart { .. } => &COMMAND_STORAGE_CONTRACTS[3],
+        Command::ListApplications { .. } => &COMMAND_STORAGE_CONTRACTS[4],
+        Command::SaveApplication { .. } => &COMMAND_STORAGE_CONTRACTS[5],
+        Command::DeleteApplication { .. } => &COMMAND_STORAGE_CONTRACTS[6],
+        Command::CloseApplication { .. } => &COMMAND_STORAGE_CONTRACTS[7],
+        Command::UploadCover { .. } => &COMMAND_STORAGE_CONTRACTS[8],
+        Command::SubmitPairingPin { .. } => &COMMAND_STORAGE_CONTRACTS[9],
+        Command::ListPendingPairings { .. } => &COMMAND_STORAGE_CONTRACTS[10],
+        Command::ListPairedClients { .. } => &COMMAND_STORAGE_CONTRACTS[11],
+        Command::SetPairedClientEnabled { .. } => &COMMAND_STORAGE_CONTRACTS[12],
+        Command::UnpairClient { .. } => &COMMAND_STORAGE_CONTRACTS[13],
+        Command::UnpairAllClients { .. } => &COMMAND_STORAGE_CONTRACTS[14],
+        Command::ReadLogs { .. } => &COMMAND_STORAGE_CONTRACTS[15],
+        Command::ReadDiagnostics { .. } => &COMMAND_STORAGE_CONTRACTS[16],
+        Command::ReadVirtualInputStatus { .. } => &COMMAND_STORAGE_CONTRACTS[17],
+        Command::RunMaintenance { .. } => &COMMAND_STORAGE_CONTRACTS[18],
+        Command::ReadServiceStatus { .. } => &COMMAND_STORAGE_CONTRACTS[19],
+        Command::ControlService { .. } => &COMMAND_STORAGE_CONTRACTS[20],
+    }
+}
+
+/// Build-time data representation of the same persistent JSON semantics.
+/// Consumers explicitly export this data; the protocol does not inspect their source.
+pub fn persistent_json_definitions() -> serde_json::Value {
+    use serde_json::{Value, json};
+    let fields: Vec<&str> = config::FIELD_DEFINITIONS
+        .iter()
+        .map(|field| field.key)
+        .collect();
+    let mut snapshot_schema = serde_json::to_value(schemars::schema_for!(ConfigSnapshot)).unwrap();
+    snapshot_schema["properties"]["revision"] = json!({"type":"string","minLength":REVISION_HEX_BYTES,"maxLength":REVISION_HEX_BYTES,"pattern":"^[0-9a-f]+$"});
+    snapshot_schema["properties"]["sunshine_version"] =
+        json!({"type":"string","enum":SUPPORTED_SUNSHINE_VERSIONS});
+    let properties: serde_json::Map<String, Value> = fields
+        .iter()
+        .map(|key| ((*key).to_owned(), json!({"type":"string"})))
+        .collect();
+    snapshot_schema["properties"]["fields"] =
+        json!({"type":"object","additionalProperties":false,"properties":properties});
+    let snapshot_rules = json!([{"kind":"object-value-string-bytes","fields":["/fields"],"arguments":{"minimum":0,"maximum":MAX_STORED_CONFIG_VALUE_BYTES}}]);
+    let mut capabilities_schema =
+        serde_json::to_value(schemars::schema_for!(Capabilities)).unwrap();
+    capabilities_schema["properties"]["protocol"] = json!({"type":"string","const":PROTOCOL});
+    capabilities_schema["properties"]["sunshine_version"] =
+        json!({"type":"string","enum":SUPPORTED_SUNSHINE_VERSIONS});
+    let capabilities_rules = json!([
+        {"kind":"string-bytes","fields":["/client_version"],"arguments":{"minimum":1,"maximum":MAX_CLIENT_VERSION_BYTES}},
+        {"kind":"string-trim-no-control","fields":["/client_version"],"arguments":{}},
+        {"kind":"complete-string-set","fields":["/managed_fields"],"arguments":{"values":fields}}]);
+    let snapshot = json!({"revision":"a".repeat(REVISION_HEX_BYTES),"sunshine_version":SUNSHINE_VERSION,"fields":{},"effectiveness":"pending_verification"});
+    let capabilities = json!({"protocol":PROTOCOL,"client_version":"1.0.0","os":"linux_x86_64","sunshine_version":SUNSHINE_VERSION,"restart_allowed":false,"managed_fields":fields,"configuration_overwrite":false,"application_management":false,"application_host_commands_allowed":false,"moonlight_pairing_management":false,"pending_pairing_listing":false,"diagnostics":false,"maintenance":false,"service_control":false});
+    let mut snapshot_cases = vec![json!({"name":"current","input":snapshot,"valid":true})];
+    for (name, field, value) in [
+        (
+            "invalid-revision",
+            "revision",
+            json!("A".repeat(REVISION_HEX_BYTES)),
+        ),
+        (
+            "unsupported-version",
+            "sunshine_version",
+            json!("unsupported"),
+        ),
+        ("unknown-field", "obsolete", json!(true)),
+        ("unknown-managed-field", "fields", json!({"obsolete":"x"})),
+        (
+            "value-byte-bound",
+            "fields",
+            json!({(fields[0]):"é".repeat(MAX_STORED_CONFIG_VALUE_BYTES/2+1)}),
+        ),
+    ] {
+        let mut value_case = snapshot.clone();
+        value_case[field] = value;
+        snapshot_cases.push(json!({"name":name,"input":value_case,"valid":false}));
+    }
+    let mut capabilities_cases = vec![json!({"name":"current","input":capabilities,"valid":true})];
+    for (name, field, value) in [
+        ("protocol", "protocol", json!("obsolete")),
+        ("version-space", "client_version", json!(" bad")),
+        ("version-control", "client_version", json!("bad\n")),
+        (
+            "version-bytes",
+            "client_version",
+            json!("é".repeat(MAX_CLIENT_VERSION_BYTES / 2 + 1)),
+        ),
+        ("managed-set", "managed_fields", json!([])),
+        ("unknown-field", "obsolete", json!(true)),
+    ] {
+        let mut value_case = capabilities.clone();
+        value_case[field] = value;
+        capabilities_cases.push(json!({"name":name,"input":value_case,"valid":false}));
+    }
+    for case in &snapshot_cases {
+        assert_eq!(
+            serde_json::from_value::<ConfigSnapshot>(case["input"].clone())
+                .is_ok_and(|value| validate_stored_snapshot(&value).is_ok()),
+            case["valid"].as_bool().unwrap()
+        );
+    }
+    for case in &capabilities_cases {
+        assert_eq!(
+            serde_json::from_value::<Capabilities>(case["input"].clone())
+                .is_ok_and(|value| value.validate().is_ok()),
+            case["valid"].as_bool().unwrap()
+        );
+    }
+    json!({"snapshot":{"schema":snapshot_schema,"rules":snapshot_rules,"cases":snapshot_cases},"capabilities":{"schema":capabilities_schema,"rules":capabilities_rules,"cases":capabilities_cases}})
 }

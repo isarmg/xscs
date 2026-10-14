@@ -1,13 +1,9 @@
-# Installation and operation
+# XSCS 发行包
 
-Use the signed release package with the shared [XSSI](https://github.com/isarmg/xssi) installer. Verify the package against an independently supplied release public key and fingerprint before executing its scripts or helper. The installer prepares the service account, directories, configuration, initial administrator and systemd unit. Host operations belong to the scripts.
+本包运行主体为 Linux x86_64 GNU `xscs`，业务代码与管理 Web 嵌入同一可执行文件。运行入口为 `bin/xscs --root ROOT`，必须使用已完成安装的物理绝对目录，不能仅复制程序后让它自动建立管理员或数据库。
 
-The default installation root is `/opt/isarmg/xscs`. Runtime invocation is `xscs --root ROOT`. The server reads `ROOT/config/config.json`, opens existing initialized state and starts HTTP. Startup never creates administrator accounts or installation secrets.
+执行前核对外层归档 SHA-256、`share/package.json`、`share/package.sha256` 和包内文件清单。载荷含当前配置/数据材料、独立辅助程序、原始许可证、SBOM 及统一服务模板，来源由本次源码和构建记录绑定；不要求发行签名私钥或公钥。
 
-An upgrade first downloads and verifies the complete package while the existing service is running. Its script then stops all writers and delegates the locked backup, explicit source/target schema migration and atomic package switch to XSSC. The script starts the resulting service and checks readiness; failure restores the backed-up generation before returning to the previous service. Media/file paths are preserved instead of silently moved.
+安装、只读维护及升级入口由公开 [XSSI](https://github.com/isarmg/xssi)实现，完整使用说明在工具仓库。安装不自动启动或启用服务；确认配置后由管理员手动启动。默认工具安装根为 `/opt/isarmg/xscs`。私有数据库和密钥属于同一保留集，媒体或业务文件按实际配置路径保存，ROOT/logs 与 ROOT/run 留在安装根。
 
-Offline configuration checks and administrator password resets use the signed `libexec/setup` helper through XSSI maintenance scripts. Runtime HTTP administrator and health endpoints remain available. Passwords use the existing administrator hash policy; resetting an administrator password preserves instance authorization keys.
-
-Uninstallation and removal of data are performed by the operator.
-
-Release CI uses `XSSI_REPOSITORY_TOKEN` with read-only access to the private XSSI source repository, together with the separately controlled package signing key. The token is scoped to the Git fetch and never passed to builds or included in the archive. Local packaging can use existing Git credentials.
+升级只接受满足目标当前契约的数据，先下载与摘要核验，再停写、备份、检查、替换、启动和验收；失败恢复操作前完整环境。卸载和删除数据由操作者处理。

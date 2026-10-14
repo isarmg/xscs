@@ -17,13 +17,6 @@ mod platform {
     pub struct ApplicationLock {
         location: DatabaseLocation,
         _instance: File,
-        _maintenance: File,
-    }
-
-    /// A cooperative online (shared) or offline (exclusive) maintenance lock.
-    pub struct MaintenanceLock {
-        location: DatabaseLocation,
-        _file: File,
     }
 
     impl ApplicationLock {
@@ -32,13 +25,9 @@ mod platform {
             let instance = location
                 .acquire(".xscs.instance.lock", LockKind::Exclusive)
                 .context("another xscs process already owns this SQLite database")?;
-            let maintenance = location
-                .acquire(".xscs.maintenance.lock", LockKind::Shared)
-                .context("xscs database maintenance is active; refusing to start")?;
             Ok(Self {
                 location,
                 _instance: instance,
-                _maintenance: maintenance,
             })
         }
 
@@ -52,42 +41,7 @@ mod platform {
         }
     }
 
-    impl MaintenanceLock {
-        pub fn shared(database_url: &str) -> anyhow::Result<Self> {
-            let location = DatabaseLocation::resolve(database_url)?;
-            let file = location
-                .acquire(".xscs.maintenance.lock", LockKind::Shared)
-                .context("exclusive xscs database maintenance is active")?;
-            Ok(Self {
-                location,
-                _file: file,
-            })
-        }
-
-        pub fn exclusive(database_url: &str) -> anyhow::Result<Self> {
-            let location = DatabaseLocation::resolve(database_url)?;
-            let file = location
-                .acquire(".xscs.maintenance.lock", LockKind::Exclusive)
-                .context("xscs is running or another maintenance command is active")?;
-            Ok(Self {
-                location,
-                _file: file,
-            })
-        }
-
-        /// SQLite URL rooted at the already verified directory descriptor.
-        pub fn database_url(&self) -> String {
-            self.location.database_url()
-        }
-
-        pub fn database_path(&self) -> PathBuf {
-            self.location.database_path()
-        }
-    }
-
-    #[derive(Clone, Copy)]
     enum LockKind {
-        Shared,
         Exclusive,
     }
 
@@ -160,7 +114,6 @@ mod platform {
                 "xscs database lock must be one regular file"
             );
             let operation = match kind {
-                LockKind::Shared => FlockOperation::NonBlockingLockShared,
                 LockKind::Exclusive => FlockOperation::NonBlockingLockExclusive,
             };
             match flock(&fd, operation) {
@@ -225,16 +178,13 @@ mod platform {
         }
 
         #[test]
-        fn application_and_maintenance_lock_modes_are_fail_closed() {
+        fn application_lock_is_exclusive_and_released_on_drop() {
             let directory = tempfile::tempdir().unwrap();
             let url = database_url(directory.path(), "app.sqlite3");
             let application = ApplicationLock::acquire(&url).unwrap();
             assert!(ApplicationLock::acquire(&url).is_err());
-            let online = MaintenanceLock::shared(&url).unwrap();
-            assert!(MaintenanceLock::exclusive(&url).is_err());
-            drop(online);
             drop(application);
-            MaintenanceLock::exclusive(&url).unwrap();
+            ApplicationLock::acquire(&url).unwrap();
         }
 
         #[test]
@@ -253,17 +203,6 @@ mod platform {
             let dotted = format!("sqlite://{}/./app.sqlite3", directory.path().display());
             let _direct = ApplicationLock::acquire(&direct).unwrap();
             assert!(ApplicationLock::acquire(&dotted).is_err());
-        }
-
-        #[test]
-        fn exclusive_maintenance_blocks_start_and_online_maintenance() {
-            let directory = tempfile::tempdir().unwrap();
-            let url = database_url(directory.path(), "app.sqlite3");
-            let maintenance = MaintenanceLock::exclusive(&url).unwrap();
-            assert!(ApplicationLock::acquire(&url).is_err());
-            assert!(MaintenanceLock::shared(&url).is_err());
-            drop(maintenance);
-            ApplicationLock::acquire(&url).unwrap();
         }
 
         #[test]
@@ -401,7 +340,6 @@ mod platform {
     use std::path::PathBuf;
 
     pub struct ApplicationLock;
-    pub struct MaintenanceLock;
 
     impl ApplicationLock {
         pub fn acquire(_: &str) -> anyhow::Result<Self> {
@@ -416,24 +354,6 @@ mod platform {
             unreachable!()
         }
     }
-
-    impl MaintenanceLock {
-        pub fn shared(_: &str) -> anyhow::Result<Self> {
-            anyhow::bail!("secure xscs database locks require Linux openat2")
-        }
-
-        pub fn exclusive(_: &str) -> anyhow::Result<Self> {
-            anyhow::bail!("secure xscs database locks require Linux openat2")
-        }
-
-        pub fn database_url(&self) -> String {
-            unreachable!()
-        }
-
-        pub fn database_path(&self) -> PathBuf {
-            unreachable!()
-        }
-    }
 }
 
-pub use platform::{ApplicationLock, MaintenanceLock};
+pub use platform::ApplicationLock;

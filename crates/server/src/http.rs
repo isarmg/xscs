@@ -1412,14 +1412,14 @@ mod tests {
         ))
         .await
         .unwrap();
-        AdministratorService::new(SqliteAdministratorStore::new(pool.clone()))
-            .bootstrap_administrator(
-                "admin",
-                "correct horse battery staple",
-                u64::try_from(db::now_micros().unwrap()).unwrap(),
-            )
-            .await
-            .unwrap();
+        crate::test_support::seed_administrator(
+            &AdministratorService::new(SqliteAdministratorStore::new(pool.clone())),
+            "admin",
+            "correct horse battery staple",
+            u64::try_from(db::now_micros().unwrap()).unwrap(),
+        )
+        .await
+        .unwrap();
         let state = WorkerState::new(
             pool.clone(),
             SecretBox::new("test", [2; 32]).unwrap(),

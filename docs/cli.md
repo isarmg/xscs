@@ -1,11 +1,7 @@
-# Installation and operation
+# 运行入口
 
-Use the signed release package with the shared [XSSI](https://github.com/isarmg/xssi) installer. Verify the package against an independently supplied release public key and fingerprint before executing its scripts or helper. The installer prepares the service account, directories, configuration, initial administrator and systemd unit. Host operations belong to the scripts.
+业务程序仅负责加载既有安装并运行，入口为 `xscs --root ROOT`；ROOT 必须是显式、规范化的物理绝对路径。`--help`、`--version` 不访问安装状态。省略 ROOT 明确失败；运行程序不提供安装、初始化、升级、离线检查或密码重置命令。
 
-The default installation root is `/opt/isarmg/xscs`. Runtime invocation is `xscs --root ROOT`. The server reads `ROOT/config/config.json`, opens existing initialized state and starts HTTP. Startup never creates administrator accounts or installation secrets.
+默认安装位置 `/opt/isarmg/xscs` 由独立 [XSSI 安装维护工具](https://github.com/isarmg/xssi)选择，业务程序没有默认目录。程序读取 `ROOT/config/config.json`，关键配置、数据库或安装密钥缺失时停止，不猜测首次安装。
 
-An upgrade first downloads and verifies the complete package while the existing service is running. Its script then stops all writers and delegates the locked backup, explicit source/target schema migration and atomic package switch to XSSC. The script starts the resulting service and checks readiness; failure restores the backed-up generation before returning to the previous service. Media/file paths are preserved instead of silently moved.
-
-Offline configuration checks and administrator password resets use the signed `libexec/setup` helper through XSSI maintenance scripts. Runtime HTTP administrator and health endpoints remain available. Passwords use the existing administrator hash policy; resetting an administrator password preserves instance authorization keys.
-
-Uninstallation and removal of data are performed by the operator.
+正常启动与停止由 `systemctl start xscs.service`、`systemctl stop xscs.service` 管理，安装后需由管理员手动启动。只读检查和离线密码恢复使用 XSSI 的 `maintenance.sh`；升级使用 `upgrade.sh` 调用 XSSC。其完整参数、互斥和恢复步骤由工具仓库维护，见[运维](operations.md)。

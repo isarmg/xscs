@@ -1,15 +1,7 @@
-# Installation and operation
+# 环境与首次运行
 
-Use the signed release package with the shared [XSSI](https://github.com/isarmg/xssi) installer. Verify the package against an independently supplied release public key and fingerprint before executing its scripts or helper. The installer prepares the service account, directories, configuration, initial administrator and systemd unit. Host operations belong to the scripts.
+Server 只支持 Linux x86_64 GNU，业务程序和管理 Web 同包交付。安装必须使用对应发行包和独立 [XSSI](https://github.com/isarmg/xssi)，执行前核验 SHA-256；不得从源码目录直接调用旧初始化命令。
 
-The default installation root is `/opt/isarmg/xscs`. Runtime invocation is `xscs --root ROOT`. The server reads `ROOT/config/config.json`, opens existing initialized state and starts HTTP. Startup never creates administrator accounts or installation secrets.
+准备产品[配置](../configuration.md)，工具默认根为 `/opt/isarmg/xscs`。安装建立当前管理员、数据库、密钥和 systemd 配置，不自动启动或启用服务；管理员确认有效配置后手动启动 `xscs.service`，以 `/readyz` 和管理登录核对结果。访问生产管理页面需浏览器 HTTPS 来源。
 
-An upgrade first downloads and verifies the complete package while the existing service is running. Its script then stops all writers and delegates the locked backup, explicit source/target schema migration and atomic package switch to XSSC. The script starts the resulting service and checks readiness; failure restores the backed-up generation before returning to the previous service. Media/file paths are preserved instead of silently moved.
-
-Offline configuration checks and administrator password resets use the signed `libexec/setup` helper through XSSI maintenance scripts. Runtime HTTP administrator and health endpoints remain available. Passwords use the existing administrator hash policy; resetting an administrator password preserves instance authorization keys.
-
-Uninstallation and removal of data are performed by the operator.
-
-## Development checks
-
-Build embedded assets with the pinned XCSS Web builder, then run `cargo fmt --all -- --check`, product unit tests and Clippy. Use isolated private fixtures for offline initialization, validation and migration checks. Product packages obtain installer implementation from the exact `installer-source.json` revision and require the controlled `XSSI_SIGNING_KEY` file.
+业务运行入口和权限前提见[运行入口](../cli.md)及[运维](../operations.md)，当前数据缺失或损坏明确失败。开发者构建与隔离测试见[开发指南](../development.md)，不能把开发构建视作正式发行。

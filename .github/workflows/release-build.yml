@@ -33,22 +33,8 @@ jobs:
         run: |
           cargo install cargo-audit --version 0.22.2 --locked
           cargo install cargo-cyclonedx --version 0.5.9 --locked
-      - name: Build and verify the signed Server archive
-        env:
-          PACKAGE_SIGNING_KEY: ${{ secrets.XSSI_PACKAGE_SIGNING_KEY }}
-          XSSI_REPOSITORY_TOKEN: ${{ secrets.XSSI_REPOSITORY_TOKEN }}
+      - name: Build and verify the Server archive
         run: |
-          umask 077
-          export XSSI_SIGNING_KEY="$RUNNER_TEMP/package-signing.pem"
-          python3 - <<'PYKEY'
-          import os,pathlib
-          if not os.environ.get("XSSI_REPOSITORY_TOKEN"): raise SystemExit("XSSI_REPOSITORY_TOKEN with read-only private XSSI access is required")
-          key=os.environ.pop("PACKAGE_SIGNING_KEY")
-          if not key: raise SystemExit("XSSI_PACKAGE_SIGNING_KEY is required")
-          pathlib.Path(os.environ["XSSI_SIGNING_KEY"]).write_text(key)
-          PYKEY
-          unset PACKAGE_SIGNING_KEY
-          trap 'rm -f -- "$XSSI_SIGNING_KEY"' EXIT
           mkdir -p "$RUNNER_TEMP/release-output"
           python3 scripts/package-release.py "$RUNNER_TEMP/release-output"
       - name: Retain verified release inputs for automatic publication

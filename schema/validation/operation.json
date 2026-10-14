@@ -1,0 +1,93 @@
+[
+  {
+    "name": "current-request",
+    "input": {
+      "key_hex": "0909090909090909090909090909090909090909090909090909090909090909",
+      "operation_id": "11223344-5566-4788-99aa-bbccddeeff00",
+      "action": "sunshine.config.read",
+      "target_key": "00112233-4455-4677-8899-aabbccddeeff",
+      "resource_namespace": "xscc.client.v1.00112233-4455-4677-8899-aabbccddeeff.22334455-6677-4899-aabb-ccddeeff0011.read",
+      "payload_json": "{\"actor\":\"fixture-admin\",\"request_ciphertext\":\"xscs:sgev1:primary:U0dFVgABAAECAwQFBgcICQoLKVzEzYCXP0vMh8NEavdu80l6j623BF5j7Z6eZCvkTXrGLTxqv7tqDNATD4Rqs6LAWLLeB4meQxThmOuesp5dREJNmzyS1rlNi2tXP4NpOvESi+Oh2kSvsZ748CYRDdEi96IwGycwO/HQ3PbSk+VK7Rfh8+zYxaDeob/qmmHdyIlrnc1dTbasciOliiwot0zQAlUlQfINfuH6deh2+3T4aktgzQc90Od/Q8M+7esoBUcMeYae6klmnpghy0KsSZkKDLXeJPYRwpMz+2MLKSxmJLJQYl53EDx6Vg8Asu6W\"}",
+      "request_fingerprint_hex": "704b88ebb2f476f97412bc90d03f2e2369d30f3e1a011b053f13823d6e54be0f"
+    },
+    "valid": true
+  },
+  {
+    "name": "different-operation",
+    "input": {
+      "key_hex": "0909090909090909090909090909090909090909090909090909090909090909",
+      "operation_id": "11223344-5566-4788-99aa-bbccddeeff01",
+      "action": "sunshine.config.read",
+      "target_key": "00112233-4455-4677-8899-aabbccddeeff",
+      "resource_namespace": "xscc.client.v1.00112233-4455-4677-8899-aabbccddeeff.22334455-6677-4899-aabb-ccddeeff0011.read",
+      "payload_json": "{\"actor\":\"fixture-admin\",\"request_ciphertext\":\"xscs:sgev1:primary:U0dFVgABAAECAwQFBgcICQoLKVzEzYCXP0vMh8NEavdu80l6j623BF5j7Z6eZCvkTXrGLTxqv7tqDNATD4Rqs6LAWLLeB4meQxThmOuesp5dREJNmzyS1rlNi2tXP4NpOvESi+Oh2kSvsZ748CYRDdEi96IwGycwO/HQ3PbSk+VK7Rfh8+zYxaDeob/qmmHdyIlrnc1dTbasciOliiwot0zQAlUlQfINfuH6deh2+3T4aktgzQc90Od/Q8M+7esoBUcMeYae6klmnpghy0KsSZkKDLXeJPYRwpMz+2MLKSxmJLJQYl53EDx6Vg8Asu6W\"}",
+      "request_fingerprint_hex": "704b88ebb2f476f97412bc90d03f2e2369d30f3e1a011b053f13823d6e54be0f"
+    },
+    "valid": false
+  },
+  {
+    "name": "different-action",
+    "input": {
+      "key_hex": "0909090909090909090909090909090909090909090909090909090909090909",
+      "operation_id": "11223344-5566-4788-99aa-bbccddeeff00",
+      "action": "sunshine.config.save",
+      "target_key": "00112233-4455-4677-8899-aabbccddeeff",
+      "resource_namespace": "xscc.client.v1.00112233-4455-4677-8899-aabbccddeeff.22334455-6677-4899-aabb-ccddeeff0011.read",
+      "payload_json": "{\"actor\":\"fixture-admin\",\"request_ciphertext\":\"xscs:sgev1:primary:U0dFVgABAAECAwQFBgcICQoLKVzEzYCXP0vMh8NEavdu80l6j623BF5j7Z6eZCvkTXrGLTxqv7tqDNATD4Rqs6LAWLLeB4meQxThmOuesp5dREJNmzyS1rlNi2tXP4NpOvESi+Oh2kSvsZ748CYRDdEi96IwGycwO/HQ3PbSk+VK7Rfh8+zYxaDeob/qmmHdyIlrnc1dTbasciOliiwot0zQAlUlQfINfuH6deh2+3T4aktgzQc90Od/Q8M+7esoBUcMeYae6klmnpghy0KsSZkKDLXeJPYRwpMz+2MLKSxmJLJQYl53EDx6Vg8Asu6W\"}",
+      "request_fingerprint_hex": "704b88ebb2f476f97412bc90d03f2e2369d30f3e1a011b053f13823d6e54be0f"
+    },
+    "valid": false
+  },
+  {
+    "name": "different-target",
+    "input": {
+      "key_hex": "0909090909090909090909090909090909090909090909090909090909090909",
+      "operation_id": "11223344-5566-4788-99aa-bbccddeeff00",
+      "action": "sunshine.config.read",
+      "target_key": "00112233-4455-4677-8899-aabbccddeefe",
+      "resource_namespace": "xscc.client.v1.00112233-4455-4677-8899-aabbccddeeff.22334455-6677-4899-aabb-ccddeeff0011.read",
+      "payload_json": "{\"actor\":\"fixture-admin\",\"request_ciphertext\":\"xscs:sgev1:primary:U0dFVgABAAECAwQFBgcICQoLKVzEzYCXP0vMh8NEavdu80l6j623BF5j7Z6eZCvkTXrGLTxqv7tqDNATD4Rqs6LAWLLeB4meQxThmOuesp5dREJNmzyS1rlNi2tXP4NpOvESi+Oh2kSvsZ748CYRDdEi96IwGycwO/HQ3PbSk+VK7Rfh8+zYxaDeob/qmmHdyIlrnc1dTbasciOliiwot0zQAlUlQfINfuH6deh2+3T4aktgzQc90Od/Q8M+7esoBUcMeYae6klmnpghy0KsSZkKDLXeJPYRwpMz+2MLKSxmJLJQYl53EDx6Vg8Asu6W\"}",
+      "request_fingerprint_hex": "704b88ebb2f476f97412bc90d03f2e2369d30f3e1a011b053f13823d6e54be0f"
+    },
+    "valid": false
+  },
+  {
+    "name": "different-namespace",
+    "input": {
+      "key_hex": "0909090909090909090909090909090909090909090909090909090909090909",
+      "operation_id": "11223344-5566-4788-99aa-bbccddeeff00",
+      "action": "sunshine.config.read",
+      "target_key": "00112233-4455-4677-8899-aabbccddeeff",
+      "resource_namespace": "xscc.client.v1.00112233-4455-4677-8899-aabbccddeeff.22334455-6677-4899-aabb-ccddeeff0011.write",
+      "payload_json": "{\"actor\":\"fixture-admin\",\"request_ciphertext\":\"xscs:sgev1:primary:U0dFVgABAAECAwQFBgcICQoLKVzEzYCXP0vMh8NEavdu80l6j623BF5j7Z6eZCvkTXrGLTxqv7tqDNATD4Rqs6LAWLLeB4meQxThmOuesp5dREJNmzyS1rlNi2tXP4NpOvESi+Oh2kSvsZ748CYRDdEi96IwGycwO/HQ3PbSk+VK7Rfh8+zYxaDeob/qmmHdyIlrnc1dTbasciOliiwot0zQAlUlQfINfuH6deh2+3T4aktgzQc90Od/Q8M+7esoBUcMeYae6klmnpghy0KsSZkKDLXeJPYRwpMz+2MLKSxmJLJQYl53EDx6Vg8Asu6W\"}",
+      "request_fingerprint_hex": "704b88ebb2f476f97412bc90d03f2e2369d30f3e1a011b053f13823d6e54be0f"
+    },
+    "valid": false
+  },
+  {
+    "name": "different-fingerprint",
+    "input": {
+      "key_hex": "0909090909090909090909090909090909090909090909090909090909090909",
+      "operation_id": "11223344-5566-4788-99aa-bbccddeeff00",
+      "action": "sunshine.config.read",
+      "target_key": "00112233-4455-4677-8899-aabbccddeeff",
+      "resource_namespace": "xscc.client.v1.00112233-4455-4677-8899-aabbccddeeff.22334455-6677-4899-aabb-ccddeeff0011.read",
+      "payload_json": "{\"actor\":\"fixture-admin\",\"request_ciphertext\":\"xscs:sgev1:primary:U0dFVgABAAECAwQFBgcICQoLKVzEzYCXP0vMh8NEavdu80l6j623BF5j7Z6eZCvkTXrGLTxqv7tqDNATD4Rqs6LAWLLeB4meQxThmOuesp5dREJNmzyS1rlNi2tXP4NpOvESi+Oh2kSvsZ748CYRDdEi96IwGycwO/HQ3PbSk+VK7Rfh8+zYxaDeob/qmmHdyIlrnc1dTbasciOliiwot0zQAlUlQfINfuH6deh2+3T4aktgzQc90Od/Q8M+7esoBUcMeYae6klmnpghy0KsSZkKDLXeJPYRwpMz+2MLKSxmJLJQYl53EDx6Vg8Asu6W\"}",
+      "request_fingerprint_hex": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    "valid": false
+  },
+  {
+    "name": "unknown-payload-field",
+    "input": {
+      "key_hex": "0909090909090909090909090909090909090909090909090909090909090909",
+      "operation_id": "11223344-5566-4788-99aa-bbccddeeff00",
+      "action": "sunshine.config.read",
+      "target_key": "00112233-4455-4677-8899-aabbccddeeff",
+      "resource_namespace": "xscc.client.v1.00112233-4455-4677-8899-aabbccddeeff.22334455-6677-4899-aabb-ccddeeff0011.read",
+      "payload_json": "{\"actor\":\"fixture-admin\",\"request_ciphertext\":\"xscs:sgev1:primary:U0dFVgABAAECAwQFBgcICQoLKVzEzYCXP0vMh8NEavdu80l6j623BF5j7Z6eZCvkTXrGLTxqv7tqDNATD4Rqs6LAWLLeB4meQxThmOuesp5dREJNmzyS1rlNi2tXP4NpOvESi+Oh2kSvsZ748CYRDdEi96IwGycwO/HQ3PbSk+VK7Rfh8+zYxaDeob/qmmHdyIlrnc1dTbasciOliiwot0zQAlUlQfINfuH6deh2+3T4aktgzQc90Od/Q8M+7esoBUcMeYae6klmnpghy0KsSZkKDLXeJPYRwpMz+2MLKSxmJLJQYl53EDx6Vg8Asu6W\",\"old\":true}",
+      "request_fingerprint_hex": "704b88ebb2f476f97412bc90d03f2e2369d30f3e1a011b053f13823d6e54be0f"
+    },
+    "valid": false
+  }
+]

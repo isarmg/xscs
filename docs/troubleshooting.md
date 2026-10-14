@@ -1,11 +1,11 @@
-# Installation and operation
+# 排查运行故障
 
-Use the signed release package with the shared [XSSI](https://github.com/isarmg/xssi) installer. Verify the package against an independently supplied release public key and fingerprint before executing its scripts or helper. The installer prepares the service account, directories, configuration, initial administrator and systemd unit. Host operations belong to the scripts.
+先核对 `systemctl status xscs.service`、`journalctl --utc -u xscs.service` 和 ROOT/logs 的同次启动记录，保存错误码及 request ID。端口可连、进程存在和 `/readyz` 就绪分别判断。
 
-The default installation root is `/opt/isarmg/xscs`. Runtime invocation is `xscs --root ROOT`. The server reads `ROOT/config/config.json`, opens existing initialized state and starts HTTP. Startup never creates administrator accounts or installation secrets.
+配置读取拒绝时，核对实际 ROOT、root 所有的配置目录与文件、服务组读权限以及最终 systemd 访问范围；配置由服务账号所有或含链接、额外 ACL 时均不满足安装契约。不要把整个 ROOT 改为服务账号可写。
 
-An upgrade first downloads and verifies the complete package while the existing service is running. Its script then stops all writers and delegates the locked backup, explicit source/target schema migration and atomic package switch to XSSC. The script starts the resulting service and checks readiness; failure restores the backed-up generation before returning to the previous service. Media/file paths are preserved instead of silently moved.
+配置、数据库或密钥缺失、当前结构身份不符时，业务程序明确停止。使用独立 [XSSI](https://github.com/isarmg/xssi)只读维护核验实际状态，保留原文件与错误证据；不要修改元数据冒充当前结构，不删除运行锁或重建密钥。
 
-Offline configuration checks and administrator password resets use the signed `libexec/setup` helper through XSSI maintenance scripts. Runtime HTTP administrator and health endpoints remain available. Passwords use the existing administrator hash policy; resetting an administrator password preserves instance authorization keys.
+登录返回 429 时，当前实际数据库的尝试次数已经达到公共上限，等待统计窗口结束。成功不会清空计数，超额请求不会延长窗口，程序不按 IP 封禁。忘记密码使用离线维护入口，在系统确认所有写入者退出后重置并撤销原管理员会话，保留实例密钥。
 
-Uninstallation and removal of data are performed by the operator.
+存储容量拒绝时检查真实剩余空间、数据库与业务额度。只按已有保留策略处理可回收材料；不通过关闭容量保护、删未知文件或删除唯一恢复副本制造成功。升级或恢复中断时按原事务身份继续，未知状态保持停写并报告。

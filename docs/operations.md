@@ -1,11 +1,11 @@
-# Installation and operation
+# 部署与日常运维
 
-Use the signed release package with the shared [XSSI](https://github.com/isarmg/xssi) installer. Verify the package against an independently supplied release public key and fingerprint before executing its scripts or helper. The installer prepares the service account, directories, configuration, initial administrator and systemd unit. Host operations belong to the scripts.
+获取与目标 Linux x86_64 GNU 对应的正式发行包，执行任何载荷前核对归档 SHA-256、包内 `share/package.json`、`share/package.sha256` 和完整文件清单。完整安装、只读维护与升级流程由独立 [XSSI](https://github.com/isarmg/xssi)维护；产品字段与目录差异见[配置](configuration.md)。
 
-The default installation root is `/opt/isarmg/xscs`. Runtime invocation is `xscs --root ROOT`. The server reads `ROOT/config/config.json`, opens existing initialized state and starts HTTP. Startup never creates administrator accounts or installation secrets.
+安装工具准备服务账号、初始管理员、数据库、密钥和 systemd 配置，不自动启动或启用服务。管理员核对配置后手动运行 `systemctl start xscs.service`；是否开机自动运行由管理员决定。状态可通过 `systemctl status xscs.service` 及 `/readyz` 核对，存活不代表业务就绪。
 
-An upgrade first downloads and verifies the complete package while the existing service is running. Its script then stops all writers and delegates the locked backup, explicit source/target schema migration and atomic package switch to XSSC. The script starts the resulting service and checks readiness; failure restores the backed-up generation before returning to the previous service. Media/file paths are preserved instead of silently moved.
+应用日志为 ROOT/logs 中的 UTC 结构化记录；启动诊断可使用 `journalctl --utc -u xscs.service`。服务账号可写实际 state/logs/run 和经声明授权的业务目录，不能修改程序、工具、校验材料和维护记录。真实权限以安装后的服务账号及最终 systemd 配置验证。
 
-Offline configuration checks and administrator password resets use the signed `libexec/setup` helper through XSSI maintenance scripts. Runtime HTTP administrator and health endpoints remain available. Passwords use the existing administrator hash policy; resetting an administrator password preserves instance authorization keys.
+升级先取得并核验完整新包，再停止全部已声明写入者，备份并只读检查目标当前契约，替换载荷、受控启动并核对实际程序和业务就绪。数据不符合目标契约时保留原环境并拒绝升级；工具不执行历史转换。失败恢复操作前匹配的完整程序、配置、数据、密钥、权限和服务状态，不能只还原数据库。
 
-Uninstallation and removal of data are performed by the operator.
+备份配置、完整私有数据目录及实际业务路径，并核验其同代关系。保留恢复义务材料和未知状态；工具材料回收按明确的保留期限、引用和事务身份执行。卸载、服务注册移除和数据删除由操作者自行处理，工具不自动卸载或清空业务数据。

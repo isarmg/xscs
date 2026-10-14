@@ -7,6 +7,7 @@ license.workspace = true
 publish = false
 
 [dependencies]
+schemars = { version = "1.2.3", features = ["uuid1"] }
 hex.workspace = true
 serde.workspace = true
 serde_json.workspace = true

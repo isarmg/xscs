@@ -13,7 +13,9 @@ use xscs_protocol::{
     AUTHORIZATION_CODE_LENGTH, Binding, Capabilities, ConfigSnapshot, is_valid_authorization_code,
 };
 pub const SCHEMA: &str = "xscs";
-pub use crate::database_schema::{initialize_empty, open_existing, open_or_initialize};
+pub use crate::database_schema::open_existing;
+#[cfg(test)]
+pub use crate::database_schema::{initialize_empty, open_or_initialize};
 
 type PairingStateRow = (Option<Vec<u8>>, Option<String>, Option<i64>);
 
@@ -44,6 +46,19 @@ impl Device {
             && self
                 .last_seen_at_micros
                 .is_some_and(|seen| now.saturating_sub(seen) < 45_000_000);
+        if self
+            .snapshot_json
+            .as_ref()
+            .is_some_and(|value| value.len() > xscs_protocol::MAX_REPORT_BYTES)
+            || self
+                .capabilities_json
+                .as_ref()
+                .is_some_and(|value| value.len() > xscs_protocol::MAX_REPORT_BYTES)
+        {
+            return Err(AppError::Internal(anyhow::anyhow!(
+                "stored Client JSON exceeds the current byte boundary"
+            )));
+        }
         let snapshot: Option<ConfigSnapshot> = self
             .snapshot_json
             .as_deref()

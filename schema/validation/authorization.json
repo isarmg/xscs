@@ -1,0 +1,82 @@
+[
+  {
+    "name": "current-text-uuid",
+    "input": {
+      "key_hex": "0909090909090909090909090909090909090909090909090909090909090909",
+      "identity_hex": "30303131323233332d343435352d343637372d383839392d616162626363646465656666",
+      "ciphertext_base64": "eHNjczpzZ2V2MTpwcmltYXJ5OlUwZEZWZ0FCQUFFQ0F3UUZCZ2NJQ1FvTGg5Nk1ad0xBZkphdzQxUm52bkxsSXZ0Ym5vSDVtNCtUakp6Y2FaZG91VmkxTXVuajlyQ3IrdDNMc0o5TUI1WmFGVldjMWc9PQ==",
+      "digest_hex": "011fc2994e39d251141540f87a69092b3f22a86767f7283de7eeedb3897bedf6"
+    },
+    "valid": true
+  },
+  {
+    "name": "current-binary-uuid",
+    "input": {
+      "key_hex": "0909090909090909090909090909090909090909090909090909090909090909",
+      "identity_hex": "00112233445546778899aabbccddeeff",
+      "ciphertext_base64": "eHNjczpzZ2V2MTpwcmltYXJ5OlUwZEZWZ0FCQUFFQ0F3UUZCZ2NJQ1FvTGg5Nk1ad0xBZkphdzQxUm52bkxsSXZ0Ym5vSDVtNCtUakp6Y2FaZG91VmkxTXVuajlyQ3IrdDNMc0o5TUI1WmFGVldjMWc9PQ==",
+      "digest_hex": "011fc2994e39d251141540f87a69092b3f22a86767f7283de7eeedb3897bedf6"
+    },
+    "valid": true
+  },
+  {
+    "name": "different-object",
+    "input": {
+      "key_hex": "0909090909090909090909090909090909090909090909090909090909090909",
+      "identity_hex": "30303131323233332d343435352d343637372d383839392d616162626363646465656665",
+      "ciphertext_base64": "eHNjczpzZ2V2MTpwcmltYXJ5OlUwZEZWZ0FCQUFFQ0F3UUZCZ2NJQ1FvTGg5Nk1ad0xBZkphdzQxUm52bkxsSXZ0Ym5vSDVtNCtUakp6Y2FaZG91VmkxTXVuajlyQ3IrdDNMc0o5TUI1WmFGVldjMWc9PQ==",
+      "digest_hex": "011fc2994e39d251141540f87a69092b3f22a86767f7283de7eeedb3897bedf6"
+    },
+    "valid": false
+  },
+  {
+    "name": "different-key",
+    "input": {
+      "key_hex": "0808080808080808080808080808080808080808080808080808080808080808",
+      "identity_hex": "30303131323233332d343435352d343637372d383839392d616162626363646465656666",
+      "ciphertext_base64": "eHNjczpzZ2V2MTpwcmltYXJ5OlUwZEZWZ0FCQUFFQ0F3UUZCZ2NJQ1FvTGg5Nk1ad0xBZkphdzQxUm52bkxsSXZ0Ym5vSDVtNCtUakp6Y2FaZG91VmkxTXVuajlyQ3IrdDNMc0o5TUI1WmFGVldjMWc9PQ==",
+      "digest_hex": "011fc2994e39d251141540f87a69092b3f22a86767f7283de7eeedb3897bedf6"
+    },
+    "valid": false
+  },
+  {
+    "name": "tampered-ciphertext",
+    "input": {
+      "key_hex": "0909090909090909090909090909090909090909090909090909090909090909",
+      "identity_hex": "30303131323233332d343435352d343637372d383839392d616162626363646465656666",
+      "ciphertext_base64": "eHNjczpzZ2V2MTpwcmltYXJ5OlUwZEZWZ0FCQUFFQ0F3UUZCZ2NJQ1FvTGg5Nk1ad0xBZkphdzQxUm52bkxsSXZ0Ym5vSDVtNCtUakp6Y2FaZG91VmkxTXVuajlyQ3IrdDNMc0o5TUI1WmFGVldjMWc9PA==",
+      "digest_hex": "011fc2994e39d251141540f87a69092b3f22a86767f7283de7eeedb3897bedf6"
+    },
+    "valid": false
+  },
+  {
+    "name": "mismatched-digest",
+    "input": {
+      "key_hex": "0909090909090909090909090909090909090909090909090909090909090909",
+      "identity_hex": "30303131323233332d343435352d343637372d383839392d616162626363646465656666",
+      "ciphertext_base64": "eHNjczpzZ2V2MTpwcmltYXJ5OlUwZEZWZ0FCQUFFQ0F3UUZCZ2NJQ1FvTGg5Nk1ad0xBZkphdzQxUm52bkxsSXZ0Ym5vSDVtNCtUakp6Y2FaZG91VmkxTXVuajlyQ3IrdDNMc0o5TUI1WmFGVldjMWc9PQ==",
+      "digest_hex": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    "valid": false
+  },
+  {
+    "name": "unknown-identity",
+    "input": {
+      "key_hex": "0909090909090909090909090909090909090909090909090909090909090909",
+      "identity_hex": "6e6f742d612d75756964",
+      "ciphertext_base64": "eHNjczpzZ2V2MTpwcmltYXJ5OlUwZEZWZ0FCQUFFQ0F3UUZCZ2NJQ1FvTGg5Nk1ad0xBZkphdzQxUm52bkxsSXZ0Ym5vSDVtNCtUakp6Y2FaZG91VmkxTXVuajlyQ3IrdDNMc0o5TUI1WmFGVldjMWc9PQ==",
+      "digest_hex": "011fc2994e39d251141540f87a69092b3f22a86767f7283de7eeedb3897bedf6"
+    },
+    "valid": false
+  },
+  {
+    "name": "no-pending-enrollment-digest",
+    "input": {
+      "key_hex": "0909090909090909090909090909090909090909090909090909090909090909",
+      "identity_hex": "30303131323233332d343435352d343637372d383839392d616162626363646465656666",
+      "ciphertext_base64": "eHNjczpzZ2V2MTpwcmltYXJ5OlUwZEZWZ0FCQUFFQ0F3UUZCZ2NJQ1FvTGg5Nk1ad0xBZkphdzQxUm52bkxsSXZ0Ym5vSDVtNCtUakp6Y2FaZG91VmkxTXVuajlyQ3IrdDNMc0o5TUI1WmFGVldjMWc9PQ==",
+      "digest_hex": null
+    },
+    "valid": true
+  }
+]

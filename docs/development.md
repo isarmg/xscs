@@ -1,15 +1,9 @@
-# Installation and operation
+# 开发与发行验证
 
-Use the signed release package with the shared [XSSI](https://github.com/isarmg/xssi) installer. Verify the package against an independently supplied release public key and fingerprint before executing its scripts or helper. The installer prepares the service account, directories, configuration, initial administrator and systemd unit. Host operations belong to the scripts.
+当前 Server 目标为 Linux x86_64 GNU，Rust 使用根 `rust-toolchain.toml` 的精确版本，Node 与 npm 工具链及依赖使用 Web 配置和权威锁文件。公共 Rust 输入为 XCSS 1.0.0 的完整源码修订，Web 使用同版正式归档；不能将相邻源码覆盖冒充正式依赖。
 
-The default installation root is `/opt/isarmg/xscs`. Runtime invocation is `xscs --root ROOT`. The server reads `ROOT/config/config.json`, opens existing initialized state and starts HTTP. Startup never creates administrator accounts or installation secrets.
+在产品根目录先运行 `npm ci --prefix web`，再按 `xcss-web-build.json` 使用锁定的 XCSS Web 构建入口生成嵌入资源。Rust 验证执行 `cargo fmt --all -- --check`、`cargo test --locked --all-targets --all-features` 和 `cargo clippy --locked --all-targets --all-features -- -D warnings`。测试只操作隔离数据、端口和进程；本地不能执行的目标环境需独立记录。
 
-An upgrade first downloads and verifies the complete package while the existing service is running. Its script then stops all writers and delegates the locked backup, explicit source/target schema migration and atomic package switch to XSSC. The script starts the resulting service and checks readiness; failure restores the backed-up generation before returning to the previous service. Media/file paths are preserved instead of silently moved.
+`crates/server/src/config_definition.rs`、`installation_definition.rs`、当前 DDL 及构建入口生成与源码身份绑定的配置、凭据、资源和数据契约。独立 XSSI 辅助程序实施初始化、校验及维护；产品源码中不保留运行入口不可达的安装实现。
 
-Offline configuration checks and administrator password resets use the signed `libexec/setup` helper through XSSI maintenance scripts. Runtime HTTP administrator and health endpoints remain available. Passwords use the existing administrator hash policy; resetting an administrator password preserves instance authorization keys.
-
-Uninstallation and removal of data are performed by the operator.
-
-## Development checks
-
-Build embedded assets with the pinned XCSS Web builder, then run `cargo fmt --all -- --check`, product unit tests and Clippy. Use isolated private fixtures for offline initialization, validation and migration checks. Product packages obtain installer implementation from the exact `installer-source.json` revision and require the controlled `XSSI_SIGNING_KEY` file.
+正式打包由 `scripts/package-release.py`从精确 `config/xssi.lock` 修订取得公开 XSSI 源码，要求干净工作树、当前不可变标签、真实编译来源与 Web 清单。SBOM 结合实际依赖图、最终文件、独立程序及第三方资源；打包后验证 `share/package.json`、`share/package.sha256` 和实际载荷，成功后才能发布。源码构建、模拟、实机运行与最终包验收分别记录。

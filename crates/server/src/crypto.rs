@@ -12,25 +12,7 @@ use xcss::secret_envelope::EnvelopeDomain;
 
 use crate::error::{AppError, AppResult};
 
-const PREFIX: &str = "xscs:sgev1:";
-const AAD_FORMAT: &[u8] = b"xscs:aes-256-gcm:aad:v1";
-const OPERATION_REQUEST_DOMAIN: &[u8] = b"operation-request";
-const OPERATION_REQUEST_FIELD: &[u8] = b"request_ciphertext";
-const HKDF_SALT: &[u8] = b"xscs:credential-master-key:hkdf-sha256:v1";
-const REQUEST_FINGERPRINT_INFO: &[u8] = b"xscs:operation-request-fingerprint:hmac-sha256:v1";
-const IDEMPOTENCY_KEY_HASH_INFO: &[u8] = b"xscs:operation-idempotency-key-hash:hmac-sha256:v1";
-
-struct OperationRequestEnvelope;
-impl EnvelopeDomain for OperationRequestEnvelope {
-    const DOMAIN: &'static [u8] = b"xscs/operation-request";
-    const REVISION: u16 = 1;
-}
-
-struct ClientAuthorizationEnvelope;
-impl EnvelopeDomain for ClientAuthorizationEnvelope {
-    const DOMAIN: &'static [u8] = b"xscs/client-authorization";
-    const REVISION: u16 = 1;
-}
+use crate::persistent_crypto_definition::*;
 
 #[derive(Clone)]
 pub struct SecretBox {
@@ -272,5 +254,53 @@ mod tests {
             a.operation_request_fingerprint("x"),
             a.operation_request_fingerprint("x")
         );
+    }
+}
+
+#[cfg(test)]
+mod installation_vector_tests {
+    use super::*;
+    use base64::engine::general_purpose::STANDARD;
+    #[test]
+    fn current_authorization_material_matches_runtime_decryption() {
+        let cases: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../schema/validation/authorization.json"
+        ))
+        .unwrap();
+        for case in cases.as_array().unwrap() {
+            let input = &case["input"];
+            let valid = (|| -> anyhow::Result<()> {
+                let key: [u8; 32] = hex::decode(input["key_hex"].as_str().unwrap())?
+                    .try_into()
+                    .map_err(|_| anyhow::anyhow!("bad key"))?;
+                let identity = hex::decode(input["identity_hex"].as_str().unwrap())?;
+                let identity = if identity.len() == 16 {
+                    uuid::Uuid::from_slice(&identity)?
+                } else {
+                    uuid::Uuid::parse_str(std::str::from_utf8(&identity)?)?
+                };
+                let ciphertext = STANDARD.decode(input["ciphertext_base64"].as_str().unwrap())?;
+                let plaintext = SecretBox::new(crate::secret_definition::KEY_ID, key)?
+                    .decrypt_client_authorization(
+                        &identity.to_string(),
+                        std::str::from_utf8(&ciphertext)?,
+                    )?;
+                crate::db::validate_authorization_code(&plaintext)?;
+                if let Some(digest) = input["digest_hex"].as_str() {
+                    anyhow::ensure!(
+                        hex::decode(digest)? == crate::db::token_hash(&plaintext),
+                        "digest mismatch"
+                    );
+                }
+                Ok(())
+            })()
+            .is_ok();
+            assert_eq!(
+                valid,
+                case["valid"].as_bool().unwrap(),
+                "runtime differs from installation case {}",
+                case["name"]
+            );
+        }
     }
 }

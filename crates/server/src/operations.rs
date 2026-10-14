@@ -162,12 +162,7 @@ struct Payload {
     actor: String,
     request_ciphertext: String,
 }
-#[derive(Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Request {
-    binding: Binding,
-    command: Command,
-}
+type Request = xscs_protocol::StoredRequest;
 #[derive(Serialize)]
 pub struct OperationView {
     pub operation_id: String,
@@ -387,46 +382,10 @@ fn namespace(device_id: &str, installation_id: &Uuid, resource: &str) -> String 
     format!("xscc.client.v1.{device_id}.{installation_id}.{resource}")
 }
 fn resource(command: &Command) -> &'static str {
-    if matches!(
-        command,
-        Command::ReadConfig {}
-            | Command::ListApplications {}
-            | Command::ListPendingPairings {}
-            | Command::ListPairedClients {}
-            | Command::ReadLogs { .. }
-            | Command::ReadDiagnostics {}
-            | Command::ReadVirtualInputStatus {}
-            | Command::ReadServiceStatus {}
-    ) {
-        "read"
-    } else {
-        "write"
-    }
+    xscs_protocol::command_storage_contract(command).resource
 }
 pub fn action(command: &Command) -> &'static str {
-    match command {
-        Command::ReadConfig {} => "sunshine.config.read",
-        Command::PatchConfig { .. } => "sunshine.config.patch",
-        Command::SaveConfig { .. } => "sunshine.config.save",
-        Command::Restart { .. } => "sunshine.restart",
-        Command::ListApplications {} => "sunshine.applications.list",
-        Command::SaveApplication { .. } => "sunshine.applications.save",
-        Command::DeleteApplication { .. } => "sunshine.applications.delete",
-        Command::CloseApplication { .. } => "sunshine.applications.close",
-        Command::UploadCover { .. } => "sunshine.applications.cover.upload",
-        Command::SubmitPairingPin { .. } => "sunshine.pairing.pin.submit",
-        Command::ListPendingPairings {} => "sunshine.pairing.pending.list",
-        Command::ListPairedClients {} => "sunshine.pairing.clients.list",
-        Command::SetPairedClientEnabled { .. } => "sunshine.pairing.clients.update",
-        Command::UnpairClient { .. } => "sunshine.pairing.clients.unpair",
-        Command::UnpairAllClients { .. } => "sunshine.pairing.clients.unpair_all",
-        Command::ReadLogs { .. } => "sunshine.logs.read",
-        Command::ReadDiagnostics {} => "sunshine.diagnostics.read",
-        Command::ReadVirtualInputStatus {} => "sunshine.virtual_input.read",
-        Command::RunMaintenance { .. } => "sunshine.maintenance.run",
-        Command::ReadServiceStatus {} => "sunshine.service.read",
-        Command::ControlService { .. } => "sunshine.service.control",
-    }
+    xscs_protocol::command_storage_contract(command).action
 }
 fn permission(command: &Command) -> Permission {
     match command {
@@ -460,12 +419,18 @@ fn payload(stored: &StoredOperation) -> AppResult<Payload> {
     serde_json::from_slice(&stored.request_payload).map_err(internal)
 }
 pub fn decode_task(secrets: &SecretBox, stored: &StoredOperation) -> AppResult<Task> {
+    if stored.request_payload.len() > xscs_protocol::MAX_MESSAGE_BYTES * 2 {
+        return Err(AppError::Crypto);
+    }
     let payload = payload(stored)?;
     let plaintext = secrets.decrypt_operation_request(
         &stored.operation.operation_id,
         &stored.action,
         &payload.request_ciphertext,
     )?;
+    if plaintext.len() > xscs_protocol::MAX_MESSAGE_BYTES {
+        return Err(AppError::Crypto);
+    }
     if !constant_time_equal_32(
         &stored.operation.request_fingerprint,
         &secrets.operation_request_fingerprint(&plaintext),
@@ -1324,18 +1289,10 @@ impl OperationManager {
     }
 }
 pub fn validate_snapshot(snapshot: &ConfigSnapshot) -> AppResult<()> {
-    xscs_protocol::validate_revision(&snapshot.revision)
-        .map_err(|_| AppError::BadRequest("Client 配置修订无效".into()))?;
-    if !xscs_protocol::is_supported_sunshine_version(&snapshot.sunshine_version)
-        || snapshot
-            .fields
-            .iter()
-            .any(|(key, value)| !xscs_protocol::config::contains_field(key) || value.len() > 512)
-    {
-        return Err(AppError::BadRequest("Client 配置响应无效".into()));
-    }
-    Ok(())
+    xscs_protocol::validate_stored_snapshot(snapshot)
+        .map_err(|_| AppError::BadRequest("Client 配置响应无效".into()))
 }
+
 fn validate_report(command: &Command, report: &Report) -> AppResult<()> {
     xscs_protocol::validate_report(command, report)
         .map_err(|_| AppError::BadRequest("Client 结果与业务指令不符".into()))

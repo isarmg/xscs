@@ -1,3 +1,5 @@
+#[path = "support/database.rs"]
+mod fixture_database;
 use chrono::{DateTime, NaiveDate, Utc};
 use uuid::Uuid;
 use xscs::{
@@ -14,7 +16,7 @@ use xscs_protocol::{
 
 async fn database() -> (tempfile::TempDir, sqlx::SqlitePool) {
     let dir = tempfile::tempdir().unwrap();
-    let pool = db::open_or_initialize(&format!(
+    let pool = fixture_database::open_or_initialize(&format!(
         "sqlite://{}",
         dir.path().join("state.db").display()
     ))
@@ -1556,7 +1558,7 @@ async fn interrupted_read_recovery_releases_both_lanes_and_late_result_preserves
     let binding = ops.task(&claim).unwrap().binding;
     drop(ops);
     pool.close().await;
-    let pool = db::open_or_initialize(&format!(
+    let pool = fixture_database::open_or_initialize(&format!(
         "sqlite://{}",
         dir.path().join("state.db").display()
     ))
@@ -1654,7 +1656,7 @@ async fn interrupted_read_recovery_releases_both_lanes_and_late_result_preserves
     );
     drop(ops);
     pool.close().await;
-    let pool = db::open_or_initialize(&format!(
+    let pool = fixture_database::open_or_initialize(&format!(
         "sqlite://{}",
         dir.path().join("state.db").display()
     ))
