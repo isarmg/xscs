@@ -76,10 +76,40 @@ jobs:
         run: python3 scripts/check-workflow-supply-chain.py
       - name: Validate release tooling
         run: |
-          python3 -m py_compile scripts/package-release.py
-          python3 scripts/test-package-boundary.py
+          python3 -m py_compile scripts/package-release.py scripts/installed-lifecycle-adapter.py
+          bash -n scripts/package-installed-candidate.sh
+          python3 -I -B scripts/test-package-boundary.py
+          python3 -I -B scripts/test-installed-lifecycle-adapter.py
+          python3 -I -B scripts/test-installed-candidate-workflow.py
       - name: Install exact Rust toolchain
         run: rustup toolchain install 1.99.0 --profile minimal --component rustfmt,clippy
+      - name: Identify exact source validation compilation environment
+        id: source_environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${ImageOS:-}" && test -n "${ImageVersion:-}"
+          fingerprint="$({
+            printf '%s\n' "$ImageOS" "$ImageVersion"
+            rustc --version --verbose
+            cargo --version --verbose
+            env | LC_ALL=C sort | grep -E '^(CARGO_|RUST|CC=|CXX=|CFLAGS=|CXXFLAGS=|LDFLAGS=|AR=|HOST_|TARGET_|SOURCE_DATE_EPOCH=)' || true
+          } | sha256sum | cut -d ' ' -f 1)"
+          printf 'fingerprint=%s\n' "$fingerprint" >> "$GITHUB_OUTPUT"
+      - name: Restore exact source validation Cargo dependencies
+        id: source_cache
+        uses: actions/cache/restore@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+        with:
+          path: |
+            ~/.cargo/registry/cache
+            ~/.cargo/registry/index
+            ~/.cargo/git/db
+            target
+          key: xscs-source-rust-v1-${{ runner.os }}-${{ runner.arch }}-rust-1.99.0-x86_64-unknown-linux-gnu-${{ steps.source_environment.outputs.fingerprint }}-${{ hashFiles('Cargo.lock', '**/Cargo.toml', '**/build.rs', '.cargo/**', 'rust-toolchain.toml', 'config/xssi.lock', 'web/package-lock.json', 'xcss-web-build.json', '.github/workflows/ci.yml') }}
+      - name: Recompile first-party checks from the current checkout
+        run: |
+          cargo clean --package xscs --package xscs-protocol
+          cargo clean --package xscs --package xscs-protocol --target x86_64-unknown-linux-gnu
       - name: Enforce the Linux AMD64 Server target boundary
         shell: bash
         run: |
@@ -125,3 +155,164 @@ jobs:
       - name: Verify instance and remote management UI
         working-directory: web
         run: npm run test:browser
+      - name: Save successful source validation Cargo dependencies
+        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.source_cache.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+        with:
+          path: |
+            ~/.cargo/registry/cache
+            ~/.cargo/registry/index
+            ~/.cargo/git/db
+            target
+          key: ${{ steps.source_cache.outputs.cache-primary-key }}
+
+  installed_candidate:
+    name: Installed release lifecycle
+    needs: scope
+    if: ${{ !cancelled() && needs.scope.outputs.run_full != 'false' }}
+    permissions:
+      contents: read
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      CARGO_INCREMENTAL: "0"
+      CARGO_TARGET_DIR: ${{ github.workspace }}/target
+      SERVER_TARGET: x86_64-unknown-linux-gnu
+    steps:
+      - name: Check out exact candidate source without credentials
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Enforce candidate workflow and packaging boundaries
+        run: |
+          python3 -I -B scripts/check-workflow-supply-chain.py
+          python3 -I -B scripts/test-installed-candidate-workflow.py
+          python3 -I -B scripts/test-installed-lifecycle-adapter.py
+      - name: Install exact Rust toolchain
+        run: rustup toolchain install 1.99.0 --profile minimal
+      - name: Install exact Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 26.7.0
+          check-latest: false
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Identify exact release compilation environment
+        id: release_environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(node --version)" = v26.7.0
+          rustc -vV | grep -Fx 'host: x86_64-unknown-linux-gnu'
+          test -n "${ImageOS:-}" && test -n "${ImageVersion:-}"
+          fingerprint="$({
+            printf '%s\n' "$ImageOS" "$ImageVersion"
+            rustc --version --verbose
+            cargo --version --verbose
+            env | LC_ALL=C sort | grep -E '^(CARGO_|RUST|CC=|CXX=|CFLAGS=|CXXFLAGS=|LDFLAGS=|AR=|HOST_|TARGET_|SOURCE_DATE_EPOCH=)' || true
+          } | sha256sum | cut -d ' ' -f 1)"
+          printf 'fingerprint=%s\n' "$fingerprint" >> "$GITHUB_OUTPUT"
+      - name: Restore exact release Cargo dependencies
+        id: release_cache
+        uses: actions/cache/restore@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+        with:
+          path: |
+            ~/.cargo/registry/cache
+            ~/.cargo/registry/index
+            ~/.cargo/git/db
+            target
+          # No fallback keys. Only a successful main push saves this cache.
+          key: xscs-installed-release-v1-${{ runner.os }}-${{ runner.arch }}-rust-1.99.0-${{ env.SERVER_TARGET }}-${{ steps.release_environment.outputs.fingerprint }}-${{ hashFiles('Cargo.lock', '**/Cargo.toml', '**/build.rs', '.cargo/**', 'rust-toolchain.toml', 'config/xssi.lock', 'web/package-lock.json', 'xcss-web-build.json', '.github/workflows/ci.yml') }}
+      - name: Discard cached first-party candidate products
+        run: |
+          cargo clean --package xscs --release --target "$SERVER_TARGET"
+          cargo clean --package xscs-protocol --release --target "$SERVER_TARGET"
+      - name: Restore exact source-built inventory tools
+        id: inventory_cache
+        uses: actions/cache/restore@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+        with:
+          path: ${{ runner.temp }}/install-inventory-tools
+          key: xscs-inventory-tools-v1-${{ runner.os }}-${{ runner.arch }}-rust-1.99.0-audit-0.22.2-cyclonedx-0.5.9-${{ steps.release_environment.outputs.fingerprint }}-${{ hashFiles('.github/workflows/ci.yml') }}
+      - name: Prepare real pinned installer and inventory tools
+        id: install_tools
+        shell: bash
+        env:
+          INVENTORY_CACHE_HIT: ${{ steps.inventory_cache.outputs.cache-hit }}
+        run: |
+          set -euo pipefail
+          tools="$RUNNER_TEMP/install-inventory-tools"
+          if [[ "$INVENTORY_CACHE_HIT" != true ]]; then
+            [[ ! -e "$tools" && ! -L "$tools" ]]
+            cargo install --locked --registry crates-io --root "$tools" cargo-audit --version 0.22.2
+            cargo install --locked --registry crates-io --root "$tools" cargo-cyclonedx --version 0.5.9
+            (cd "$tools" && sha256sum bin/cargo-audit bin/cargo-cyclonedx > SHA256SUMS)
+          fi
+          (cd "$tools" && sha256sum --check SHA256SUMS)
+          export PATH="$tools/bin:$PATH"
+          test "$(cargo audit --version)" = 'cargo-audit 0.22.2'
+          test "$(cargo cyclonedx --version)" = 'cargo-cyclonedx-cyclonedx 0.5.9'
+          printf '%s\n' "$tools/bin" >> "$GITHUB_PATH"
+          revision="$(python3 -I -B -c 'import pathlib,re; raw=pathlib.Path("config/xssi.lock").read_text(encoding="ascii"); match=re.fullmatch(r"git_rev=([0-9a-f]{40})\n",raw); assert match and match[1]!="0"*40; print(match[1])')"
+          installer="$RUNNER_TEMP/install-xssi"
+          git init --quiet "$installer"
+          git -C "$installer" remote add origin https://github.com/isarmg/xssi.git
+          git -C "$installer" fetch --quiet --depth=1 origin "$revision"
+          git -C "$installer" checkout --quiet --detach FETCH_HEAD
+          [[ "$(git -C "$installer" rev-parse HEAD)" == "$revision" ]]
+          [[ -z "$(git -C "$installer" status --porcelain=v1 --untracked-files=all)" ]]
+          test -f "$installer/scripts/package-installed-candidate.py"
+          test -f "$installer/tests/installed_lifecycle.py"
+          mkdir -m 0700 "$RUNNER_TEMP/install-metadata"
+      - name: Save verified inventory tools
+        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.inventory_cache.outputs.cache-hit != 'true' && steps.install_tools.outcome == 'success' }}
+        uses: actions/cache/save@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+        with:
+          path: ${{ runner.temp }}/install-inventory-tools
+          key: ${{ steps.inventory_cache.outputs.cache-primary-key }}
+      - name: Install locked frontend dependencies
+        run: npm ci --prefix web
+      - name: Build the source-bound release Server once
+        id: release_binary
+        env:
+          XSSI_BUILD_TOOLS_DIR: ${{ runner.temp }}/install-xssi
+          XSSI_BUILD_METADATA_DIR: ${{ runner.temp }}/install-metadata
+          XSSI_FRONTEND_METADATA_FILE: ${{ runner.temp }}/install-metadata/frontend.json
+          XSCS_SOURCE_REVISION: ${{ github.sha }}
+        run: |
+          web/node_modules/.bin/xcss-build-server --config xcss-web-build.json --mode release --no-install --source-revision "$GITHUB_SHA"
+          "$CARGO_TARGET_DIR/$SERVER_TARGET/release/xscs" --version | grep -F 'xscs '
+      - name: Save successfully compiled release dependencies
+        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.release_cache.outputs.cache-hit != 'true' && steps.release_binary.outcome == 'success' }}
+        uses: actions/cache/save@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+        with:
+          path: |
+            ~/.cargo/registry/cache
+            ~/.cargo/registry/index
+            ~/.cargo/git/db
+            target
+          key: ${{ steps.release_cache.outputs.cache-primary-key }}
+      - name: Package the exact release binary with real helper and audits
+        id: package_candidate
+        run: |
+          bash scripts/package-installed-candidate.sh \
+            "$CARGO_TARGET_DIR/$SERVER_TARGET/release/xscs" \
+            "$RUNNER_TEMP/install-metadata" "$RUNNER_TEMP/install-xssi" "$RUNNER_TEMP/install-candidate"
+      - name: Exercise production TLS authentication and installed systemd lifecycle
+        shell: bash
+        run: |
+          set -euo pipefail
+          installer="$RUNNER_TEMP/install-xssi"
+          candidates=("$RUNNER_TEMP/install-candidate"/xscs-*-linux-x86_64.tar.gz)
+          [[ ${#candidates[@]} == 1 && -f "${candidates[0]}" ]]
+          sudo env GITHUB_ACTIONS="$GITHUB_ACTIONS" RUNNER_ENVIRONMENT="$RUNNER_ENVIRONMENT" \
+            LIFECYCLE_DIAGNOSTICS="$RUNNER_TEMP/install-diagnostics" \
+            python3 -I -B "$installer/tests/installed_lifecycle.py" \
+            --adapter "$GITHUB_WORKSPACE/scripts/installed-lifecycle-adapter.py" "${candidates[0]}" "$GITHUB_SHA"
+      - name: Retain redacted installation lifecycle diagnostics
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: installed-lifecycle-${{ github.sha }}
+          path: ${{ runner.temp }}/install-diagnostics
+          if-no-files-found: ignore
+          retention-days: 3
