@@ -2,6 +2,7 @@
 
 本分支只支持自定义 RustDesk，客户端通过 xscc 管理库嵌入 RustDesk 主机进程。当前尚未接入真实 RustDesk。
 
+- [控制授权、角色与地址](access-control.md)
 - [架构](architecture.md)
 - [设备协议 v2](client-management-v2.md)
 - [通信与执行恢复](communication-reliability.md)

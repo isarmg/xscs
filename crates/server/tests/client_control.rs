@@ -16,9 +16,15 @@ async fn fixture() -> (tempfile::TempDir, OperationManager, String, String) {
     .await
     .unwrap();
     let secrets = SecretBox::new("test", [7; 32]).unwrap();
-    let ticket = db::create_device(&pool, &secrets, "RustDesk host", "admin")
-        .await
-        .unwrap();
+    let ticket = db::create_device(
+        &pool,
+        &secrets,
+        "RustDesk host",
+        InstanceRole::Controlled,
+        "admin",
+    )
+    .await
+    .unwrap();
     let credential = db::random_token();
     db::enroll(
         &pool,

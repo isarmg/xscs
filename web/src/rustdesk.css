@@ -1,2 +1,3 @@
 .xcss-content-stack pre { white-space: pre-wrap; overflow-wrap: anywhere; }
 .xcss-content-stack code { user-select: all; overflow-wrap: anywhere; }
+.rustdesk-access-peer { display: flex; align-items: center; gap: .5rem; padding: .4rem; }

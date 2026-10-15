@@ -1,4 +1,5 @@
 //! RustDesk-only control plane. The management client runs inside RustDesk.
+pub mod access;
 pub mod config;
 mod config_definition;
 pub mod crypto;

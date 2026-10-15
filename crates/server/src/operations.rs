@@ -1259,6 +1259,7 @@ mod capacity_tests {
             pool,
             &SecretBox::new("test", [7; 32]).unwrap(),
             "测试设备",
+            xscs_protocol::InstanceRole::Controlled,
             "admin",
         )
         .await

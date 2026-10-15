@@ -1,11 +1,14 @@
 use crate::error::{AppError, AppResult};
 use serde::{Deserialize, Serialize};
-use xscs_protocol::{Capabilities, DiagnosticSnapshot};
+use xscs_protocol::{Capabilities, DiagnosticSnapshot, HostAddress, InstanceRole};
 
 #[derive(Debug, Serialize)]
 pub struct DeviceView {
     pub id: String,
     pub name: String,
+    pub role: InstanceRole,
+    pub addresses: Vec<HostAddress>,
+    pub addresses_at_micros: Option<i64>,
     pub registered: bool,
     pub pairing_pending: bool,
     pub revoked: bool,
@@ -23,6 +26,7 @@ pub struct DeviceName {
 #[serde(deny_unknown_fields)]
 pub struct CreateDeviceRequest {
     pub name: Option<String>,
+    pub role: InstanceRole,
 }
 #[derive(Debug, Serialize)]
 pub struct ClientAuthorization {
@@ -59,8 +63,10 @@ mod tests {
 
     #[test]
     fn create_request_allows_the_server_default_only_when_name_is_omitted() {
-        let request: CreateDeviceRequest = serde_json::from_value(serde_json::json!({})).unwrap();
+        let request: CreateDeviceRequest =
+            serde_json::from_value(serde_json::json!({"role":"controlled"})).unwrap();
         assert!(request.name.is_none());
+        assert!(serde_json::from_value::<CreateDeviceRequest>(serde_json::json!({})).is_err());
         assert!(
             serde_json::from_value::<CreateDeviceRequest>(serde_json::json!({"other": true}))
                 .is_err()

@@ -2,6 +2,8 @@
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
+mod access;
+pub use access::*;
 
 pub const PROTOCOL: &str = "xscs-management/2";
 pub const TASK_PROTOCOL: &str = "xscs-task/2";
@@ -13,6 +15,7 @@ pub const ENROLL_PATH: &str = "/xscc/v2/enroll";
 pub const PAIRING_PATH: &str = "/xscc/v2/pairing";
 pub const IDENTITY_PATH: &str = "/xscc/v2/identity";
 pub const CONNECT_PATH: &str = "/xscc/v2/connect";
+pub const ACCESS_PATH: &str = "/xscc/v2/access";
 pub const MAX_MESSAGE_BYTES: usize = 64 * 1024;
 pub const MAX_REPORT_BYTES: usize = MAX_MESSAGE_BYTES - 1024;
 pub const MAX_EXECUTION_SECONDS: u64 = 10;
@@ -146,6 +149,9 @@ pub enum DeliveryMode {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ManagerMessage {
+    AccessPolicy {
+        policy: Box<AccessPolicy>,
+    },
     Task {
         mode: DeliveryMode,
         task: Box<Task>,
@@ -209,6 +215,7 @@ pub enum ClientMessage {
     },
     Heartbeat {
         diagnostics: Option<DiagnosticSnapshot>,
+        addresses: Vec<HostAddress>,
     },
     Result {
         operation_id: String,

@@ -24,6 +24,7 @@ type PairingStateRow = (Option<Vec<u8>>, Option<String>, Option<i64>);
 pub struct Device {
     pub device_id: String,
     pub name: String,
+    pub role: String,
     pub installation_id: Option<String>,
     pub credential_hash: Option<Vec<u8>>,
     pub enrollment_hash: Option<Vec<u8>>,
@@ -34,6 +35,8 @@ pub struct Device {
     pub health_at_micros: Option<i64>,
     pub capabilities_json: Option<String>,
     pub diagnostics_json: Option<String>,
+    pub addresses_json: Option<String>,
+    pub addresses_at_micros: Option<i64>,
     pub created_at_micros: i64,
     pub updated_at_micros: i64,
 }
@@ -77,6 +80,9 @@ impl Device {
         Ok(DeviceView {
             id: self.device_id.clone(),
             name: self.name.clone(),
+            role: crate::access::role(self)?,
+            addresses: crate::access::stored_addresses(self)?,
+            addresses_at_micros: self.addresses_at_micros,
             registered: self.installation_id.is_some(),
             pairing_pending: self.enrollment_hash.is_some()
                 && self.installation_id.is_none()
@@ -123,6 +129,7 @@ pub async fn create_device(
     pool: &SqlitePool,
     secrets: &SecretBox,
     name: &str,
+    role: xscs_protocol::InstanceRole,
     actor: &str,
 ) -> AppResult<EnrollmentTicket> {
     validate_instance_name(name)?;
@@ -137,8 +144,8 @@ pub async fn create_device(
     if count >= 4096 {
         return Err(AppError::Conflict("设备容量已满".into()));
     }
-    sqlx::query("INSERT INTO devices(device_id,name,enrollment_hash,authorization_code_enc,created_at_micros,updated_at_micros) VALUES(?,?,?,?,?,?)")
-        .bind(&id).bind(name).bind(token_hash(&token).as_slice()).bind(authorization_code_enc).bind(now).bind(now).execute(&mut *tx).await?;
+    sqlx::query("INSERT INTO devices(device_id,name,role,enrollment_hash,authorization_code_enc,created_at_micros,updated_at_micros) VALUES(?,?,?,?,?,?,?)")
+        .bind(&id).bind(name).bind(role.as_str()).bind(token_hash(&token).as_slice()).bind(authorization_code_enc).bind(now).bind(now).execute(&mut *tx).await?;
     audit(&mut tx, "device.create", &id, actor, None).await?;
     tx.commit().await?;
     Ok(EnrollmentTicket {
@@ -176,7 +183,7 @@ pub async fn rotate_authorization(
     let changed = sqlx::query(
         "UPDATE devices SET enrollment_hash=?,authorization_code_enc=?,installation_id=NULL,\
         credential_hash=NULL,session_id=NULL,last_seen_at_micros=NULL,health_at_micros=NULL,\
-         capabilities_json=NULL,diagnostics_json=NULL,updated_at_micros=? \
+         capabilities_json=NULL,diagnostics_json=NULL,addresses_json=NULL,addresses_at_micros=NULL,updated_at_micros=? \
          WHERE device_id=? AND revoked_at_micros IS NULL",
     )
     .bind(token_hash(authorization_code).as_slice())

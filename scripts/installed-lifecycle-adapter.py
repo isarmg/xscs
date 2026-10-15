@@ -24,7 +24,7 @@ def api(request, path, method='GET', body=None, csrf=None):
 
 def exercise(request, session, sensitive, require):
     csrf = session['csrf_token']
-    ticket = api(request, '/api/v1/rustdesk/devices', 'POST', {'name': 'Original lifecycle device'}, csrf)
+    ticket = api(request, '/api/v1/rustdesk/devices', 'POST', {'name': 'Original lifecycle device', 'role': 'controlled'}, csrf)
     device = ticket['device']
     require(device['name'] == 'Original lifecycle device', 'Device creation differs')
     path = '/api/v1/rustdesk/devices/' + device['id']

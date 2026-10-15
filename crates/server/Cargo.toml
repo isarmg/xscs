@@ -39,6 +39,7 @@ tracing-subscriber.workspace = true
 uuid.workspace = true
 
 [dev-dependencies]
+tokio-tungstenite = { version = "0.29", default-features = false, features = ["connect"] }
 http-body-util.workspace = true
 tower.workspace = true
 

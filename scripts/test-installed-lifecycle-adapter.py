@@ -55,6 +55,7 @@ class AdapterContract(unittest.TestCase):
                     authorization.update(data)
                 result = authorization
             elif method == 'POST':
+                self.assertEqual(data['role'], 'controlled')
                 result = {'device': device}
             elif method == 'PATCH':
                 device.update(data)

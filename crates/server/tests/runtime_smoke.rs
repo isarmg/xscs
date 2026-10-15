@@ -169,7 +169,7 @@ async fn real_process_login_device_changes_and_restart_preserve_state() {
         &base,
         "POST",
         "/api/v1/rustdesk/devices",
-        Some(json!({"name":"Original smoke device"})),
+        Some(json!({"name":"Original smoke device","role":"controlled"})),
         Some(csrf),
     );
     let id = ticket["device"]["id"].as_str().unwrap();
@@ -195,8 +195,31 @@ async fn real_process_login_device_changes_and_restart_preserve_state() {
         Some(csrf),
     );
     assert_eq!(authorization["authorization_code"], code);
+    let controller = request(
+        root,
+        &base,
+        "POST",
+        "/api/v1/rustdesk/devices",
+        Some(json!({"name":"Smoke controller","role":"controller"})),
+        Some(csrf),
+    );
+    let controller_id = controller["device"]["id"].as_str().unwrap();
+    let access_path = format!("{path}/access");
+    let rules = request(root, &base, "GET", &access_path, None, None);
+    let access = request(
+        root,
+        &base,
+        "PUT",
+        &access_path,
+        Some(json!({"peer_ids":[controller_id],"expected_revision":rules["revision"]})),
+        Some(csrf),
+    );
+    assert_eq!(access["peer_ids"], json!([controller_id]));
+    let reverse_path = format!("/api/v1/rustdesk/devices/{controller_id}/access");
+    let reverse = request(root, &base, "GET", &reverse_path, None, None);
+    assert_eq!(reverse["peer_ids"], json!([id]));
     let before = request(root, &base, "GET", "/api/v1/rustdesk/devices", None, None);
-    assert_eq!(before.as_array().unwrap().len(), 1);
+    assert_eq!(before.as_array().unwrap().len(), 2);
     assert_eq!(before[0]["id"], id);
     assert_eq!(before[0]["name"], "Renamed smoke device");
     server.stop();
@@ -209,5 +232,13 @@ async fn real_process_login_device_changes_and_restart_preserve_state() {
     assert_eq!(after, before);
     let persisted_authorization = request(root, &base, "GET", &authorization_path, None, None);
     assert_eq!(persisted_authorization, authorization);
+    assert_eq!(
+        request(root, &base, "GET", &access_path, None, None),
+        access
+    );
+    assert_eq!(
+        request(root, &base, "GET", &reverse_path, None, None),
+        reverse
+    );
     server.stop();
 }

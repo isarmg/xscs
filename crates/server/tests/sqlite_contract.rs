@@ -145,15 +145,15 @@ async fn exact_current_schema_is_durable_and_self_identifying() {
         (
             1,
             database_schema::APPLICATION.to_string(),
-            "v2".to_string(),
+            "v3".to_string(),
             database_schema::SCHEMA_REVISION,
             database_schema::SCHEMA_SHA256.to_string(),
         )
     );
 
     sqlx::query(
-        "INSERT INTO devices(device_id,name,authorization_code_enc,created_at_micros,updated_at_micros) \
-         VALUES('11111111-1111-4111-8111-111111111111','Persistent',?,1,1)",
+        "INSERT INTO devices(device_id,name,role,authorization_code_enc,created_at_micros,updated_at_micros) \
+         VALUES('11111111-1111-4111-8111-111111111111','Persistent','controlled',?,1,1)",
     )
     .bind("x".repeat(80))
     .execute(&pool)

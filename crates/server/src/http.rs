@@ -111,6 +111,10 @@ pub fn router(
         )
         .route("/rustdesk/devices/{id}/revoke", post(revoke_device))
         .route(
+            "/rustdesk/devices/{id}/access",
+            get(device_access).put(update_device_access),
+        )
+        .route(
             "/rustdesk/devices/{id}/tasks",
             get(device_tasks).post(submit_task),
         )
@@ -139,6 +143,7 @@ pub fn router(
         .route(xscs_protocol::ENROLL_PATH, post(enroll))
         .route(xscs_protocol::PAIRING_PATH, post(resolve_pairing))
         .route(xscs_protocol::IDENTITY_PATH, get(client_identity))
+        .route(xscs_protocol::ACCESS_PATH, get(client_access))
         .route(xscs_protocol::CONNECT_PATH, get(client_connect));
     Ok(Router::new()
         .nest(API_NAMESPACE, api)
@@ -202,7 +207,14 @@ async fn create_device(
     ContractJson(value): ContractJson<CreateDeviceRequest>,
 ) -> AppResult<Response> {
     let name = value.name.as_deref().unwrap_or("新实例");
-    let ticket = db::create_device(&state.pool, &state.secrets, name, &actor.subject).await?;
+    let ticket = db::create_device(
+        &state.pool,
+        &state.secrets,
+        name,
+        value.role,
+        &actor.subject,
+    )
+    .await?;
     Ok((
         StatusCode::CREATED,
         [("cache-control", "no-store")],
@@ -221,6 +233,45 @@ async fn device_authorization(
             device_id: id.clone(),
             authorization_code: db::get_authorization(&state.pool, &state.secrets, &id).await?,
         }),
+    )
+        .into_response())
+}
+async fn device_access(
+    State(state): State<WorkerState>,
+    ContractPath(id): ContractPath<String>,
+) -> AppResult<Response> {
+    Ok((
+        [("cache-control", "no-store")],
+        Json(crate::access::rules(&state.pool, &id).await?),
+    )
+        .into_response())
+}
+async fn update_device_access(
+    State(state): State<WorkerState>,
+    Extension(actor): Extension<InternalIdentity>,
+    ContractPath(id): ContractPath<String>,
+    ContractJson(value): ContractJson<crate::access::UpdateAccessRules>,
+) -> AppResult<Response> {
+    Ok((
+        [("cache-control", "no-store")],
+        Json(crate::access::replace_rules(&state.pool, &id, value, &actor.subject).await?),
+    )
+        .into_response())
+}
+async fn client_access(
+    State(state): State<WorkerState>,
+    headers: HeaderMap,
+) -> AppResult<Response> {
+    require_client_channel(&headers)?;
+    let credential = headers
+        .get("authorization")
+        .and_then(|h| h.to_str().ok())
+        .and_then(|s| s.strip_prefix("Bearer "))
+        .ok_or(AppError::Unauthorized)?;
+    let device = db::authenticate_device(&state.pool, credential).await?;
+    Ok((
+        [("cache-control", "no-store")],
+        Json(crate::access::policy(&state.pool, &device, None).await?),
     )
         .into_response())
 }
@@ -695,11 +746,21 @@ async fn serve_client(
         return Err(AppError::Unauthorized);
     }
     let id = binding.device_id.to_string();
-    let changed=sqlx::query("UPDATE devices SET session_id=?,last_seen_at_micros=?,capabilities_json=? WHERE device_id=? AND installation_id=? AND revoked_at_micros IS NULL AND credential_hash=?")
+    let changed=sqlx::query("UPDATE devices SET session_id=?,last_seen_at_micros=?,capabilities_json=?,addresses_json=NULL,addresses_at_micros=NULL WHERE device_id=? AND installation_id=? AND revoked_at_micros IS NULL AND credential_hash=?")
         .bind(session).bind(db::now_micros()?).bind(serde_json::to_string(&capabilities).map_err(|_|AppError::Unauthorized)?).bind(&id).bind(binding.installation_id.to_string()).bind(authenticated_credential_hash).execute(&state.pool).await?.rows_affected();
     if changed != 1 {
         return Err(AppError::Unauthorized);
     }
+    let policy_identity = db::get_device(&state.pool, &id).await?;
+    send(
+        &mut socket,
+        ManagerMessage::AccessPolicy {
+            policy: Box::new(
+                crate::access::policy(&state.pool, &policy_identity, Some(session)).await?,
+            ),
+        },
+    )
+    .await?;
     if let Some(active) = active_operation {
         let operation = state
             .operations
@@ -750,8 +811,9 @@ async fn serve_client(
                     Message::Text(text)=>{
                         let message:ClientMessage=serde_json::from_str(&text).map_err(|_|AppError::BadRequest("Client 消息无效".into()))?;
                         match message{
-                            ClientMessage::Heartbeat{diagnostics}=>{
+                            ClientMessage::Heartbeat{diagnostics,addresses}=>{
                                 if let Some(snapshot)=&diagnostics{crate::operations::validate_diagnostics(snapshot)?;}
+                                crate::access::report_addresses(&state.pool,binding,session,&addresses).await?;
                                 sqlx::query("UPDATE devices SET health_at_micros=?,diagnostics_json=COALESCE(?,diagnostics_json) WHERE device_id=? AND session_id=? AND revoked_at_micros IS NULL")
                                     .bind(db::now_micros()?).bind(diagnostics.as_ref().map(serde_json::to_string).transpose().map_err(|_|AppError::Unauthorized)?)
                                     .bind(&id).bind(session).execute(&state.pool).await?;
@@ -786,6 +848,7 @@ async fn serve_client(
                 if last_seen.elapsed()>Duration::from_secs(45)||(pending.is_some()&&dispatched.elapsed()>Duration::from_secs(110)){return Err(AppError::Unauthorized);}
                 let current=db::get_device(&state.pool,&id).await?;
                 if current.revoked_at_micros.is_some()||current.session_id.as_deref()!=Some(session){let _=send(&mut socket,ManagerMessage::Revoked{}).await;return Err(AppError::Unauthorized);}
+                send(&mut socket,ManagerMessage::AccessPolicy{policy:Box::new(crate::access::policy(&state.pool,&policy_identity,Some(session)).await?)}).await?;
                 if pending.is_none(){
                     let (operation,mode)=if let Some(unknown)=state.operations.uncertain(&id, &binding.installation_id).await?{
                         if inspected.insert(unknown.operation.operation_id.clone()) {
@@ -1093,6 +1156,7 @@ mod tests {
     async fn private_route_requires_a_session_cookie() {
         for path in [
             "/api/v1/rustdesk/devices",
+            "/api/v1/rustdesk/devices/unknown/access",
             "/api/v1/rustdesk/devices/unknown/tasks/calendar",
             "/api/v1/rustdesk/devices/unknown/tasks/summary",
         ] {
@@ -1119,6 +1183,204 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn websocket_publishes_permissions_and_reported_addresses_without_reconnect() {
+        use futures_util::{SinkExt, StreamExt};
+        use tokio_tungstenite::{
+            connect_async,
+            tungstenite::{Message as Frame, client::IntoClientRequest},
+        };
+        use xscs_protocol::{
+            Backend, Capabilities, ClientOs, ExecutionMode, HostAddress, InstanceRole,
+        };
+        timeout(Duration::from_secs(20), async {
+            let pool = SqlitePoolOptions::new()
+                .max_connections(1)
+                .connect("sqlite::memory:")
+                .await
+                .unwrap();
+            db::initialize_empty(&pool).await.unwrap();
+            let secrets = SecretBox::new("test", [2; 32]).unwrap();
+            let controller = db::create_device(
+                &pool,
+                &secrets,
+                "Controller",
+                InstanceRole::Controller,
+                "admin",
+            )
+            .await
+            .unwrap();
+            let host =
+                db::create_device(&pool, &secrets, "Host", InstanceRole::Controlled, "admin")
+                    .await
+                    .unwrap();
+            let controller_token = db::random_token();
+            let host_token = db::random_token();
+            let controller_binding = db::enroll(
+                &pool,
+                &controller.device.id,
+                uuid::Uuid::new_v4(),
+                &controller.token,
+                &controller_token,
+            )
+            .await
+            .unwrap();
+            let host_binding = db::enroll(
+                &pool,
+                &host.device.id,
+                uuid::Uuid::new_v4(),
+                &host.token,
+                &host_token,
+            )
+            .await
+            .unwrap();
+            let state = WorkerState::new(pool.clone(), secrets, false, None).unwrap();
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let address = listener.local_addr().unwrap();
+            let server = tokio::spawn(
+                axum::serve(listener, router(state, test_runtime()).unwrap()).into_future(),
+            );
+            let caps = Capabilities {
+                protocol: xscs_protocol::PROTOCOL.into(),
+                client_version: "test".into(),
+                os: ClientOs::LinuxX86_64,
+                backend: Backend::Rustdesk,
+                execution_mode: ExecutionMode::Embedded,
+                diagnostics: true,
+            };
+            let mut sockets = Vec::new();
+            for (binding, token) in [
+                (&controller_binding, &controller_token),
+                (&host_binding, &host_token),
+            ] {
+                let mut request = format!("ws://{address}{}", xscs_protocol::CONNECT_PATH)
+                    .into_client_request()
+                    .unwrap();
+                request.headers_mut().insert(
+                    header::AUTHORIZATION,
+                    format!("Bearer {token}").parse().unwrap(),
+                );
+                request.headers_mut().insert(
+                    "sec-websocket-protocol",
+                    WEBSOCKET_SUBPROTOCOL.parse().unwrap(),
+                );
+                let (mut socket, _) = connect_async(request).await.unwrap();
+                socket
+                    .send(Frame::Text(
+                        serde_json::to_string(&ClientMessage::Hello {
+                            binding: binding.clone(),
+                            capabilities: caps.clone(),
+                            active_operation: None,
+                        })
+                        .unwrap()
+                        .into(),
+                    ))
+                    .await
+                    .unwrap();
+                let frame = socket.next().await.unwrap().unwrap();
+                let ManagerMessage::AccessPolicy { policy } =
+                    serde_json::from_str(frame.to_text().unwrap()).unwrap()
+                else {
+                    panic!("expected initial policy")
+                };
+                assert!(policy.peers.is_empty());
+                sockets.push(socket);
+            }
+            let rules = crate::access::rules(&pool, &controller.device.id)
+                .await
+                .unwrap();
+            crate::access::replace_rules(
+                &pool,
+                &controller.device.id,
+                crate::access::UpdateAccessRules {
+                    peer_ids: vec![host.device.id.clone()],
+                    expected_revision: rules.revision,
+                },
+                "admin",
+            )
+            .await
+            .unwrap();
+            let addresses = vec![HostAddress {
+                host: "host.example.com".into(),
+                port: 21118,
+            }];
+            sockets[1]
+                .send(Frame::Text(
+                    serde_json::to_string(&ClientMessage::Heartbeat {
+                        diagnostics: None,
+                        addresses: addresses.clone(),
+                    })
+                    .unwrap()
+                    .into(),
+                ))
+                .await
+                .unwrap();
+            loop {
+                let frame = sockets[0].next().await.unwrap().unwrap();
+                if let Frame::Text(text) = frame {
+                    let ManagerMessage::AccessPolicy { policy } =
+                        serde_json::from_str(&text).unwrap()
+                    else {
+                        continue;
+                    };
+                    policy.validate(&controller_binding).unwrap();
+                    if policy
+                        .peers
+                        .first()
+                        .is_some_and(|p| p.addresses == addresses)
+                    {
+                        assert_eq!(policy.peers[0].binding, host_binding);
+                        break;
+                    }
+                }
+            }
+            loop {
+                let frame = sockets[1].next().await.unwrap().unwrap();
+                if let Frame::Text(text) = frame {
+                    let ManagerMessage::AccessPolicy { policy } =
+                        serde_json::from_str(&text).unwrap()
+                    else {
+                        continue;
+                    };
+                    if let Some(peer) = policy.peers.first() {
+                        assert_eq!(peer.binding, controller_binding);
+                        assert!(peer.addresses.is_empty());
+                        break;
+                    }
+                }
+            }
+            let rules = crate::access::rules(&pool, &host.device.id).await.unwrap();
+            crate::access::replace_rules(
+                &pool,
+                &host.device.id,
+                crate::access::UpdateAccessRules {
+                    peer_ids: vec![],
+                    expected_revision: rules.revision,
+                },
+                "admin",
+            )
+            .await
+            .unwrap();
+            loop {
+                let frame = sockets[0].next().await.unwrap().unwrap();
+                if let Frame::Text(text) = frame {
+                    let ManagerMessage::AccessPolicy { policy } =
+                        serde_json::from_str(&text).unwrap()
+                    else {
+                        continue;
+                    };
+                    if policy.peers.is_empty() {
+                        break;
+                    }
+                }
+            }
+            server.abort();
+            let _ = server.await;
+        })
+        .await
+        .unwrap();
+    }
+
+    #[tokio::test]
     async fn device_lifecycle_accepts_a_remote_backend_peer_without_proxy_headers() {
         let pool = SqlitePoolOptions::new()
             .max_connections(1)
@@ -1127,9 +1389,15 @@ mod tests {
             .unwrap();
         db::initialize_empty(&pool).await.unwrap();
         let secrets = SecretBox::new("test", [2; 32]).unwrap();
-        let ticket = db::create_device(&pool, &secrets, "remote backend", "admin")
-            .await
-            .unwrap();
+        let ticket = db::create_device(
+            &pool,
+            &secrets,
+            "remote backend",
+            xscs_protocol::InstanceRole::Controlled,
+            "admin",
+        )
+        .await
+        .unwrap();
         let state = WorkerState::new(pool, secrets, true, None).unwrap();
         let application = router(state, test_runtime()).unwrap();
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -1174,6 +1442,30 @@ mod tests {
             .unwrap();
         assert_eq!(identity.status(), StatusCode::OK);
         assert_eq!(identity.json::<Value>().await.unwrap(), binding);
+
+        let access = client
+            .get(format!("{base}{}", xscs_protocol::ACCESS_PATH))
+            .bearer_auth(&credential)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(access.status(), StatusCode::OK);
+        assert_eq!(access.headers()[header::CACHE_CONTROL], "no-store");
+        let policy: xscs_protocol::AccessPolicy = access.json().await.unwrap();
+        assert_eq!(policy.role, xscs_protocol::InstanceRole::Controlled);
+        assert!(policy.peers.is_empty());
+        for (browser, expected) in [
+            (true, StatusCode::FORBIDDEN),
+            (false, StatusCode::UNAUTHORIZED),
+        ] {
+            let mut request = client.get(format!("{base}{}", xscs_protocol::ACCESS_PATH));
+            if browser {
+                request = request
+                    .bearer_auth(&credential)
+                    .header(header::ORIGIN, "https://browser.example");
+            }
+            assert_eq!(request.send().await.unwrap().status(), expected);
+        }
 
         let connection = client
             .get(format!("{base}{}", xscs_protocol::CONNECT_PATH))
