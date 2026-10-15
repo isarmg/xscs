@@ -84,6 +84,7 @@ fn policy_binds_identity_direction_and_message_bounds() {
                 },
                 name: "🙂".repeat(32),
                 role: InstanceRole::Controlled,
+                session_key: SessionKey::from_bytes([7; 32]),
                 online: true,
                 addresses: (1..=MAX_HOST_ADDRESSES)
                     .map(|port| HostAddress {

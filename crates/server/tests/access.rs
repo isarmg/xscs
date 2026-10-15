@@ -147,7 +147,7 @@ async fn clients_get_only_bound_allowed_peers_and_fresh_host_addresses() {
     let (_unrelated, _) = create(&pool, InstanceRole::Controlled, "Unrelated", true).await;
     let own = db::authenticate_device(&pool, &token).await.unwrap();
     assert!(
-        access::policy(&pool, &own, None)
+        access::policy(&pool, &SecretBox::new("test", [7; 32]).unwrap(), &own, None)
             .await
             .unwrap()
             .peers
@@ -184,7 +184,9 @@ async fn clients_get_only_bound_allowed_peers_and_fresh_host_addresses() {
     access::report_addresses(&pool, &binding, "host-session", &addresses)
         .await
         .unwrap();
-    let policy = access::policy(&pool, &own, None).await.unwrap();
+    let policy = access::policy(&pool, &SecretBox::new("test", [7; 32]).unwrap(), &own, None)
+        .await
+        .unwrap();
     assert_eq!(policy.peers.len(), 1);
     assert_eq!(policy.peers[0].binding, binding);
     assert_eq!(policy.peers[0].addresses, addresses);
@@ -200,6 +202,7 @@ async fn clients_get_only_bound_allowed_peers_and_fresh_host_addresses() {
     );
     let host_policy = access::policy(
         &pool,
+        &SecretBox::new("test", [7; 32]).unwrap(),
         &db::get_device(&pool, &host).await.unwrap(),
         Some("host-session"),
     )
@@ -218,7 +221,10 @@ async fn clients_get_only_bound_allowed_peers_and_fresh_host_addresses() {
         .await
         .unwrap();
     assert!(
-        access::policy(&pool, &own, None).await.unwrap().peers[0]
+        access::policy(&pool, &SecretBox::new("test", [7; 32]).unwrap(), &own, None)
+            .await
+            .unwrap()
+            .peers[0]
             .addresses
             .is_empty()
     );
@@ -236,7 +242,7 @@ async fn clients_get_only_bound_allowed_peers_and_fresh_host_addresses() {
     );
     db::revoke(&pool, &host, "admin").await.unwrap();
     assert!(
-        access::policy(&pool, &own, None)
+        access::policy(&pool, &SecretBox::new("test", [7; 32]).unwrap(), &own, None)
             .await
             .unwrap()
             .peers
@@ -251,7 +257,11 @@ async fn clients_get_only_bound_allowed_peers_and_fresh_host_addresses() {
     )
     .await
     .unwrap();
-    assert!(access::policy(&pool, &own, None).await.is_err());
+    assert!(
+        access::policy(&pool, &SecretBox::new("test", [7; 32]).unwrap(), &own, None)
+            .await
+            .is_err()
+    );
 }
 
 #[tokio::test]
@@ -280,5 +290,71 @@ async fn peer_capacity_is_checked_from_both_sides() {
     assert_eq!(
         access::rules(&pool, &host).await.unwrap().peer_ids.len(),
         MAX_ACCESS_PEERS
+    );
+}
+
+#[tokio::test]
+async fn pair_grants_match_both_ends_and_rotate_with_credentials() {
+    let (_dir, pool) = fixture().await;
+    let secrets = SecretBox::new("test", [7; 32]).unwrap();
+    let (controller, token) = create(&pool, InstanceRole::Controller, "Controller", true).await;
+    let (other, other_token) = create(&pool, InstanceRole::Controller, "Other", true).await;
+    let (host, host_token) = create(&pool, InstanceRole::Controlled, "Host", true).await;
+    replace(&pool, &host, &[&controller, &other]).await.unwrap();
+    let own = db::authenticate_device(&pool, &token).await.unwrap();
+    let before = access::policy(&pool, &secrets, &own, None).await.unwrap();
+    let host_device = db::authenticate_device(&pool, &host_token).await.unwrap();
+    let incoming = access::policy(&pool, &secrets, &host_device, None)
+        .await
+        .unwrap();
+    assert_eq!(
+        before.peers[0].session_key,
+        incoming
+            .peers
+            .iter()
+            .find(|p| p.binding.device_id.to_string() == controller)
+            .unwrap()
+            .session_key
+    );
+    let other_device = db::authenticate_device(&pool, &other_token).await.unwrap();
+    assert_ne!(
+        before.peers[0].session_key,
+        access::policy(&pool, &secrets, &other_device, None)
+            .await
+            .unwrap()
+            .peers[0]
+            .session_key
+    );
+    assert!(!format!("{before:?}").contains(before.peers[0].session_key.as_hex()));
+    let code = "b".repeat(36);
+    db::rotate_authorization(&pool, &secrets, &controller, &code, "admin")
+        .await
+        .unwrap();
+    let next_token = db::random_token();
+    let binding = db::enroll(
+        &pool,
+        &controller,
+        uuid::Uuid::parse_str(own.installation_id.as_deref().unwrap()).unwrap(),
+        &code,
+        &next_token,
+    )
+    .await
+    .unwrap();
+    let next_device = db::authenticate_device(&pool, &next_token).await.unwrap();
+    let next = access::policy(&pool, &secrets, &next_device, None)
+        .await
+        .unwrap();
+    assert_eq!(binding, before.binding);
+    assert_ne!(next.peers[0].session_key, before.peers[0].session_key);
+    assert!(access::policy(&pool, &secrets, &own, None).await.is_err());
+    db::unbind(&pool, &next_device).await.unwrap();
+    assert!(db::authenticate_device(&pool, &next_token).await.is_err());
+    assert_eq!(
+        access::policy(&pool, &secrets, &host_device, None)
+            .await
+            .unwrap()
+            .peers
+            .len(),
+        1
     );
 }

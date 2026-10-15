@@ -24,13 +24,17 @@ host 是规范 IPv4、无方括号的规范 IPv6，或小写 ASCII DNS 名（国
 
 ## RustDesk 获取列表
 
-`GET /xscc/v2/access` 使用绑定后的 Bearer 管理凭据，返回自己的 `binding`、`role`、`valid_for_ms:30000` 和 `peers`。每个 peer 含完整 `binding`（manager/device/installation）、名称、相反角色、online 和 addresses；控制端获取获准控制的被控端，被控端获取获准接入的控制端。仅返回直接授权关系，不返回全局设备清单、管理凭据或授权码；响应 no-store，不接受浏览器 Origin/cookie。
+`GET /xscc/v2/access` 使用绑定后的 Bearer 管理凭据，返回自己的 `binding`、`role`、`valid_for_ms:30000` 和 `peers`。每个 peer 含完整 `binding`（manager/device/installation）、名称、相反角色、online、addresses 和 `session_key`；控制端获取获准控制的被控端，被控端获取获准接入的控制端。仅返回直接授权关系，不返回全局设备清单、管理凭据或授权码；响应 no-store，不接受浏览器 Origin/cookie。
 
 现有 WSS 在 Hello 后及每 5 秒发送 `{"type":"access_policy","policy":{...}}`，因此在线实例无需重连即可看到关系、绑定、名称、地址和在线状态变化。删除、撤销或凭据更换会使旧客户端失效；其他客户端下次刷新会移除无效对端。HTTP 和 WSS 返回同一份数据库快照。
 
 xscc 暴露 `ManagerConnection::access_policy()` watch 接收器。宿主每次使用观察时调用 `AccessObservation::policy()` 或 `permits(&authenticated_binding)`；使用单调时间检查 30 秒租约，断线、撤销或正常退出立即清空观察。宿主即使保留旧观察副本也不能越过租约。正常网络下策略变更在下一次 5 秒刷新传播；断线不能继续信任历史列表。
 
-列表提供管理授权事实，不是可直接呈交给另一台 RustDesk 的签名票据。RustDesk 稳定后的原生集成必须认证对端安装身份、校验最新授权、拒绝未授权会话，并关闭不再授权的既有会话；不能以来源 IP、域名、实例名或自报 UUID 证明身份。本次只修改 xscs/xscc，不表示已实现 RustDesk 原生会话强制执行。
+`session_key` 是仅向关系两侧通过认证管理通道下发的 256-bit 实例对证明密钥，由独立 HKDF 域派生，绑定双方完整安装身份及凭据摘要。同一关系两侧得到相同密钥，不同对端、安装或凭据代际不同；凭据轮换会使旧会话证明失效。它不是管理凭据，不允许持久化、写入日志或转发给 GUI。Web 实例与授权管理接口不包含此密钥，协议 Debug 输出自动隐藏它。
+
+原生会话在加密直接传输之后，用该密钥对双方实例绑定、角色方向、双方随机挑战和实际传输主机公钥做 HMAC-SHA-256 双向证明，不能仅信任来源 IP、实例名或自报 UUID。连接期间持续核对最新授权和密钥代际，管理连接断开、租约过期或关系撤销时关闭已有会话。编码和硬件设置仍由主控端在会话中选择。
+
+`POST /xscc/v2/unbind` 使用客户端自身 Bearer 凭据，原子清除自身绑定、凭据、连接和观察，并终结旧代际任务。实例、角色和管理员配置的关系保留；可使用实例授权码重新绑定。此接口不接受其他目标实例 ID，也不接受浏览器 Origin/cookie。
 
 ## 状态与升级
 

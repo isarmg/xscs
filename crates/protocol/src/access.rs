@@ -7,6 +7,30 @@ pub const MAX_ACCESS_PEERS: usize = 32;
 pub const MAX_HOST_ADDRESSES: usize = 4;
 pub const ACCESS_LEASE_MS: u64 = 30_000;
 
+/// Pair-specific proof key, delivered only on the authenticated management channel.
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(transparent)]
+pub struct SessionKey(String);
+impl SessionKey {
+    pub fn from_bytes(bytes: [u8; 32]) -> Self {
+        Self(hex::encode(bytes))
+    }
+    pub fn as_hex(&self) -> &str {
+        &self.0
+    }
+    pub fn bytes(&self) -> Result<[u8; 32], InvalidTask> {
+        crate::validate_revision(&self.0)?;
+        let mut bytes = [0; 32];
+        hex::decode_to_slice(&self.0, &mut bytes).map_err(|_| InvalidTask)?;
+        Ok(bytes)
+    }
+}
+impl std::fmt::Debug for SessionKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("SessionKey(<redacted>)")
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum InstanceRole {
@@ -80,6 +104,7 @@ pub struct AccessPeer {
     pub online: bool,
     /// Only controlled instances expose addresses; stale observations are omitted.
     pub addresses: Vec<HostAddress>,
+    pub session_key: SessionKey,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -117,6 +142,7 @@ impl AccessPolicy {
             }
             super::validate_text(&peer.name, 128)?;
             validate_addresses(&peer.addresses)?;
+            peer.session_key.bytes()?;
         }
         if serde_json::to_vec(self).map_err(|_| InvalidTask)?.len() > MAX_MESSAGE_BYTES - 1024 {
             return Err(InvalidTask);

@@ -377,6 +377,19 @@ pub async fn authenticate_device(pool: &SqlitePool, credential: &str) -> AppResu
     sqlx::query_as("SELECT * FROM devices WHERE credential_hash=? AND revoked_at_micros IS NULL AND installation_id IS NOT NULL")
         .bind(token_hash(credential).as_slice()).fetch_optional(pool).await?.ok_or(AppError::DeviceCredentialRejected)
 }
+pub async fn unbind(pool: &SqlitePool, device: &Device) -> AppResult<()> {
+    let now = now_micros()?;
+    let mut tx = pool.begin_with("BEGIN IMMEDIATE").await?;
+    let changed = sqlx::query("UPDATE devices SET installation_id=NULL,credential_hash=NULL,session_id=NULL,last_seen_at_micros=NULL,health_at_micros=NULL,capabilities_json=NULL,diagnostics_json=NULL,addresses_json=NULL,addresses_at_micros=NULL,updated_at_micros=? WHERE device_id=? AND installation_id=? AND credential_hash=? AND revoked_at_micros IS NULL")
+        .bind(now).bind(&device.device_id).bind(&device.installation_id).bind(&device.credential_hash).execute(&mut *tx).await?.rows_affected();
+    if changed != 1 {
+        return Err(AppError::Unauthorized);
+    }
+    retire_operations_for_invalidation(&mut tx, &device.device_id, now, "device_unbound").await?;
+    audit(&mut tx, "device.unbind", &device.device_id, "client", None).await?;
+    tx.commit().await?;
+    Ok(())
+}
 pub async fn binding(pool: &SqlitePool, device: &Device) -> AppResult<Binding> {
     Ok(Binding {
         manager_id: manager_id(pool).await?,

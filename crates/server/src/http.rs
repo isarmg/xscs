@@ -144,6 +144,7 @@ pub fn router(
         .route(xscs_protocol::PAIRING_PATH, post(resolve_pairing))
         .route(xscs_protocol::IDENTITY_PATH, get(client_identity))
         .route(xscs_protocol::ACCESS_PATH, get(client_access))
+        .route(xscs_protocol::UNBIND_PATH, post(client_unbind))
         .route(xscs_protocol::CONNECT_PATH, get(client_connect));
     Ok(Router::new()
         .nest(API_NAMESPACE, api)
@@ -271,9 +272,23 @@ async fn client_access(
     let device = db::authenticate_device(&state.pool, credential).await?;
     Ok((
         [("cache-control", "no-store")],
-        Json(crate::access::policy(&state.pool, &device, None).await?),
+        Json(crate::access::policy(&state.pool, &state.secrets, &device, None).await?),
     )
         .into_response())
+}
+async fn client_unbind(
+    State(state): State<WorkerState>,
+    headers: HeaderMap,
+) -> AppResult<StatusCode> {
+    require_client_channel(&headers)?;
+    let credential = headers
+        .get("authorization")
+        .and_then(|h| h.to_str().ok())
+        .and_then(|h| h.strip_prefix("Bearer "))
+        .ok_or(AppError::Unauthorized)?;
+    let device = db::authenticate_device(&state.pool, credential).await?;
+    db::unbind(&state.pool, &device).await?;
+    Ok(StatusCode::NO_CONTENT)
 }
 async fn update_device_authorization(
     State(state): State<WorkerState>,
@@ -756,7 +771,8 @@ async fn serve_client(
         &mut socket,
         ManagerMessage::AccessPolicy {
             policy: Box::new(
-                crate::access::policy(&state.pool, &policy_identity, Some(session)).await?,
+                crate::access::policy(&state.pool, &state.secrets, &policy_identity, Some(session))
+                    .await?,
             ),
         },
     )
@@ -848,7 +864,7 @@ async fn serve_client(
                 if last_seen.elapsed()>Duration::from_secs(45)||(pending.is_some()&&dispatched.elapsed()>Duration::from_secs(110)){return Err(AppError::Unauthorized);}
                 let current=db::get_device(&state.pool,&id).await?;
                 if current.revoked_at_micros.is_some()||current.session_id.as_deref()!=Some(session){let _=send(&mut socket,ManagerMessage::Revoked{}).await;return Err(AppError::Unauthorized);}
-                send(&mut socket,ManagerMessage::AccessPolicy{policy:Box::new(crate::access::policy(&state.pool,&policy_identity,Some(session)).await?)}).await?;
+                send(&mut socket,ManagerMessage::AccessPolicy{policy:Box::new(crate::access::policy(&state.pool, &state.secrets,&policy_identity,Some(session)).await?)}).await?;
                 if pending.is_none(){
                     let (operation,mode)=if let Some(unknown)=state.operations.uncertain(&id, &binding.installation_id).await?{
                         if inspected.insert(unknown.operation.operation_id.clone()) {

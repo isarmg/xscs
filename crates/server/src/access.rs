@@ -185,6 +185,7 @@ pub async fn report_addresses(
 
 pub async fn policy(
     pool: &SqlitePool,
+    secrets: &crate::crypto::SecretBox,
     authenticated: &Device,
     session: Option<&str>,
 ) -> AppResult<AccessPolicy> {
@@ -226,14 +227,30 @@ pub async fn policy(
     let rows: Vec<Device> = sqlx::query_as("SELECT d.* FROM device_access a JOIN devices d ON d.device_id=CASE WHEN a.controller_id=? THEN a.controlled_id ELSE a.controller_id END WHERE (a.controller_id=? OR a.controlled_id=?) AND d.revoked_at_micros IS NULL AND d.installation_id IS NOT NULL ORDER BY d.device_id")
         .bind(&own.device_id).bind(&own.device_id).bind(&own.device_id).fetch_all(&mut *tx).await?;
     let now = db::now_micros()?;
+    let own_binding = binding_of(&own)?;
     let mut peers = Vec::with_capacity(rows.len());
     for device in rows {
+        let peer_binding = binding_of(&device)?;
+        let own_credential = own
+            .credential_hash
+            .as_deref()
+            .ok_or(AppError::Unauthorized)?;
+        let peer_credential = device
+            .credential_hash
+            .as_deref()
+            .ok_or(AppError::Unauthorized)?;
+        let session_key = if role(&own)? == InstanceRole::Controller {
+            secrets.session_key(&own_binding, &peer_binding, own_credential, peer_credential)?
+        } else {
+            secrets.session_key(&peer_binding, &own_binding, peer_credential, own_credential)?
+        };
         let view = device.view(now)?;
         let fresh = device
             .addresses_at_micros
             .is_some_and(|at| now >= at && now - at < 45_000_000);
         peers.push(AccessPeer {
-            binding: binding_of(&device)?,
+            binding: peer_binding,
+            session_key,
             name: device.name.clone(),
             role: view.role,
             online: view.client_online,
@@ -245,7 +262,7 @@ pub async fn policy(
         });
     }
     let policy = AccessPolicy {
-        binding: binding_of(&own)?,
+        binding: own_binding,
         role: role(&own)?,
         valid_for_ms: ACCESS_LEASE_MS,
         peers,

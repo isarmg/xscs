@@ -16,6 +16,7 @@ pub const PAIRING_PATH: &str = "/xscc/v2/pairing";
 pub const IDENTITY_PATH: &str = "/xscc/v2/identity";
 pub const CONNECT_PATH: &str = "/xscc/v2/connect";
 pub const ACCESS_PATH: &str = "/xscc/v2/access";
+pub const UNBIND_PATH: &str = "/xscc/v2/unbind";
 pub const MAX_MESSAGE_BYTES: usize = 64 * 1024;
 pub const MAX_REPORT_BYTES: usize = MAX_MESSAGE_BYTES - 1024;
 pub const MAX_EXECUTION_SECONDS: u64 = 10;

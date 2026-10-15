@@ -20,6 +20,7 @@ pub struct SecretBox {
     current: Arc<SecretKey<32>>,
     request_fingerprint_key: [u8; 32],
     idempotency_key_hash_key: [u8; 32],
+    session_pair_key: [u8; 32],
 }
 
 impl SecretBox {
@@ -38,6 +39,11 @@ impl SecretBox {
             current: Arc::new(SecretKey::new(current)),
             request_fingerprint_key,
             idempotency_key_hash_key,
+            session_pair_key: derive_key(
+                &derivation,
+                b"xscs:direct-session:pair-key:v1",
+                "direct session pair",
+            )?,
         })
     }
 
@@ -113,6 +119,26 @@ impl SecretBox {
     /// fingerprints, so equal input bytes cannot cross protocol domains.
     pub fn operation_idempotency_key_hash(&self, idempotency_key: &str) -> [u8; 32] {
         hmac_sha256(&self.idempotency_key_hash_key, idempotency_key.as_bytes())
+    }
+
+    pub fn session_key(
+        &self,
+        controller: &xscs_protocol::Binding,
+        host: &xscs_protocol::Binding,
+        controller_credential: &[u8],
+        host_credential: &[u8],
+    ) -> AppResult<xscs_protocol::SessionKey> {
+        let controller =
+            serde_json::to_vec(controller).map_err(|e| AppError::Internal(e.into()))?;
+        let host = serde_json::to_vec(host).map_err(|e| AppError::Internal(e.into()))?;
+        let context = authenticated_context(
+            b"direct-session-pair",
+            &[&controller, &host, controller_credential, host_credential],
+        );
+        Ok(xscs_protocol::SessionKey::from_bytes(hmac_sha256(
+            &self.session_pair_key,
+            &context,
+        )))
     }
 }
 
