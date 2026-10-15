@@ -761,12 +761,18 @@ async fn serve_client(
         return Err(AppError::Unauthorized);
     }
     let id = binding.device_id.to_string();
+    let policy_identity = db::get_device(&state.pool, &id).await?;
+    if !capabilities
+        .os
+        .supports_role(crate::access::role(&policy_identity)?)
+    {
+        return Err(AppError::Unauthorized);
+    }
     let changed=sqlx::query("UPDATE devices SET session_id=?,last_seen_at_micros=?,capabilities_json=?,addresses_json=NULL,addresses_at_micros=NULL WHERE device_id=? AND installation_id=? AND revoked_at_micros IS NULL AND credential_hash=?")
         .bind(session).bind(db::now_micros()?).bind(serde_json::to_string(&capabilities).map_err(|_|AppError::Unauthorized)?).bind(&id).bind(binding.installation_id.to_string()).bind(authenticated_credential_hash).execute(&state.pool).await?.rows_affected();
     if changed != 1 {
         return Err(AppError::Unauthorized);
     }
-    let policy_identity = db::get_device(&state.pool, &id).await?;
     send(
         &mut socket,
         ManagerMessage::AccessPolicy {
@@ -1264,10 +1270,18 @@ mod tests {
                 diagnostics: true,
             };
             let mut sockets = Vec::new();
-            for (binding, token) in [
-                (&controller_binding, &controller_token),
-                (&host_binding, &host_token),
+            for (binding, token, os, allowed) in [
+                (&host_binding, &host_token, ClientOs::AndroidAarch64, false),
+                (
+                    &controller_binding,
+                    &controller_token,
+                    ClientOs::IosAarch64,
+                    true,
+                ),
+                (&host_binding, &host_token, ClientOs::LinuxX86_64, true),
             ] {
+                let mut caps = caps.clone();
+                caps.os = os;
                 let mut request = format!("ws://{address}{}", xscs_protocol::CONNECT_PATH)
                     .into_client_request()
                     .unwrap();
@@ -1292,7 +1306,21 @@ mod tests {
                     ))
                     .await
                     .unwrap();
-                let frame = socket.next().await.unwrap().unwrap();
+                let frame = socket.next().await;
+                if !allowed {
+                    if let Some(Ok(frame)) = frame {
+                        assert!(frame.is_close());
+                    }
+                    assert!(
+                        db::get_device(&pool, &host.device.id)
+                            .await
+                            .unwrap()
+                            .session_id
+                            .is_none()
+                    );
+                    continue;
+                }
+                let frame = frame.unwrap().unwrap();
                 let ManagerMessage::AccessPolicy { policy } =
                     serde_json::from_str(frame.to_text().unwrap()).unwrap()
                 else {
@@ -1427,10 +1455,9 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(pairing.status(), StatusCode::OK);
-        assert_eq!(
-            pairing.json::<Value>().await.unwrap()["device_id"],
-            ticket.device.id
-        );
+        let pairing = pairing.json::<Value>().await.unwrap();
+        assert_eq!(pairing["device_id"], ticket.device.id);
+        assert_eq!(pairing["role"], "controlled");
 
         let installation = uuid::Uuid::new_v4();
         let credential = db::random_token();

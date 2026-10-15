@@ -52,6 +52,13 @@ pub enum ClientOs {
     WindowsX86_64,
     MacosX86_64,
     MacosAarch64,
+    IosAarch64,
+    AndroidAarch64,
+}
+impl ClientOs {
+    pub fn supports_role(self, role: InstanceRole) -> bool {
+        !matches!(self, Self::IosAarch64 | Self::AndroidAarch64) || role == InstanceRole::Controller
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]

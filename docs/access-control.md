@@ -39,3 +39,7 @@ xscc 暴露 `ManagerConnection::access_policy()` watch 接收器。宿主每次�
 ## 状态与升级
 
 当前产品 schema revision 3、application_version v3。DDL、生成文件、release identity 和测试夹具同步更新；没有 v1/v2 自动迁移。保留旧状态，正式升级时再设计显式迁移。设备协议仍为准备分支的 v2，服务端和 xscc 必须配套升级。
+
+## 平台与角色
+
+控制端支持 Linux amd64、macOS 26 Apple Silicon、Windows 11 amd64、iOS 26 arm64 和 Android arm64（API 29 起）。被控端仅支持前三个桌面平台。协议分别报告 `ios_aarch64` 和 `android_aarch64`；服务端在管理 Hello 接受前拒绝移动端绑定为被控端。授权码解析也返回实例角色，供移动端在注册前校验。客户端和服务端需要配套升级。

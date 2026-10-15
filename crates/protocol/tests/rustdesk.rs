@@ -1,5 +1,20 @@
 use xscs_protocol::*;
 #[test]
+fn mobile_platforms_are_controllers_and_desktop_platforms_support_both_roles() {
+    for (os, mobile) in [
+        (ClientOs::LinuxX86_64, false),
+        (ClientOs::WindowsX86_64, false),
+        (ClientOs::MacosAarch64, false),
+        (ClientOs::IosAarch64, true),
+        (ClientOs::AndroidAarch64, true),
+    ] {
+        assert!(os.supports_role(InstanceRole::Controller));
+        assert_eq!(os.supports_role(InstanceRole::Controlled), !mobile);
+        let encoded = serde_json::to_string(&os).unwrap();
+        assert_eq!(serde_json::from_str::<ClientOs>(&encoded).unwrap(), os);
+    }
+}
+#[test]
 fn accepts_only_embedded_rustdesk_and_current_contract() {
     let valid = serde_json::json!({"protocol":PROTOCOL,"client_version":"2.0.0-dev","os":"linux_x86_64","backend":"rustdesk","execution_mode":"embedded","diagnostics":true});
     let caps: Capabilities = serde_json::from_value(valid.clone()).unwrap();
