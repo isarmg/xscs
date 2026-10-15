@@ -1,37 +1,18 @@
-import { t } from "@xcss/web/admin-ui/i18n";
-import {createXcssAdminApplication,errorRequestId,useAdminApplication,InstancePageNavigation,type InstancePage,AccountPage} from "@xcss/web/admin-shell";
-import {EmptyState,ErrorState,LoadingState,Table} from "@xcss/web/admin-ui";
 import {useEffect,useState} from "react";
-import {CURRENT_API_PREFIX,adminApi,isConfigFieldDefinitions,isDevices,isTicket,type ConfigFieldDefinition,type DeviceInfo,type Ticket} from "./api";
-import {ClientWorkspace} from "./ClientWorkspace";
+import {t} from "@xcss/web/admin-ui/i18n";
+import {ErrorState,LoadingState} from "@xcss/web/admin-ui";
+import {AccountPage,InstanceHeaderActions,createXcssAdminApplication,errorRequestId,useAdminApplication} from "@xcss/web/admin-shell";
+import {adminApi,CURRENT_API_PREFIX,isDevices,isTicket,type DeviceInfo,type Ticket} from "./api";
 import {DeviceInstances} from "./DeviceInstances";
-import { InstanceHeaderActions } from "@xcss/web/admin-shell";
-function currentRoute():{page:InstancePage|"account";deviceId:string|null}{const[page,id]=window.location.hash.slice(1).split("/");return{page:["details","logs","account"].includes(page)?page as InstancePage|"account":"instances",deviceId:id&&/^[0-9a-f-]{36}$/.test(id)?id:null}}
+import {ClientWorkspace} from "./ClientWorkspace";
+function route(){const[page,id]=window.location.hash.slice(1).split("/");return{page:page==="account"?"account":page==="details"?"details":"instances",id:id??null} as const}
 function DevicesPage(){
- const{client,notify}=useAdminApplication();const[devices,setDevices]=useState<DeviceInfo[]|null>(null);const[deviceFailure,setDeviceFailure]=useState<{requestId?:string}|null>(null);const[fieldFailure,setFieldFailure]=useState<{requestId?:string}|null>(null);const[createFailure,setCreateFailure]=useState<{requestId?:string}|null>(null);
- const[fieldDefinitions,setFieldDefinitions]=useState<ConfigFieldDefinition[]|null>(null);
- const[generation,setGeneration]=useState(0);const[configRefreshSignal,setConfigRefreshSignal]=useState(0);const[creating,setCreating]=useState(false);const[selected,setSelected]=useState<string|null>(()=>currentRoute().deviceId);const[ticket,setTicket]=useState<Ticket|null>(null);
- const[page,setPage]=useState(()=>currentRoute().page);
- useEffect(()=>{const changed=()=>{const route=currentRoute();setPage(route.page);if(route.deviceId)setSelected(route.deviceId)};window.addEventListener("hashchange",changed);return()=>window.removeEventListener("hashchange",changed)},[]);
- useEffect(()=>{const controller=new AbortController();let active=true;let timer:number|undefined;async function load(){try{const values=await client.request(CURRENT_API_PREFIX+"/sunshine/devices",isDevices,{signal:controller.signal});if(active){setDevices(values);setDeviceFailure(null)}}catch(error){if(active)setDeviceFailure({requestId:errorRequestId(error)})}finally{if(active)timer=window.setTimeout(load,5000)}}void load();return()=>{active=false;controller.abort();if(timer!==undefined)clearTimeout(timer)}},[client,generation]);
- useEffect(()=>{const controller=new AbortController();let active=true;setFieldFailure(null);void client.request(CURRENT_API_PREFIX+"/sunshine/config-fields",isConfigFieldDefinitions,{signal:controller.signal}).then(value=>{if(active){setFieldDefinitions(value);setFieldFailure(null)}}).catch(error=>{if(active)setFieldFailure({requestId:errorRequestId(error)})});return()=>{active=false;controller.abort()}},[client,generation]);
- const refresh=()=>setGeneration(value=>value+1);const refreshPage=()=>{setConfigRefreshSignal(value=>value+1);refresh()};const device=selected===null?devices?.[0]:devices?.find(value=>value.id===selected);
- async function createDevice(){if(creating)return;setCreating(true);setCreateFailure(null);try{const value=await client.request(CURRENT_API_PREFIX+"/sunshine/devices",isTicket,{method:"POST",body:JSON.stringify({name:t("新实例","New instance")})});setTicket(value);setSelected(value.device.id);window.location.hash="instances";refresh();notify(t("Sunshine 实例已创建", "Sunshine instance created"))}catch(error){setCreateFailure({requestId:errorRequestId(error)})}finally{setCreating(false)}}
- const statistics=[
-  [t("总数","Total"),devices??[]],
-  ["Windows",(devices??[]).filter(value=>value.capabilities?.os.toLowerCase().includes("windows"))],
-  ["Linux",(devices??[]).filter(value=>value.capabilities?.os.toLowerCase().includes("linux"))],
-  ["macOS",(devices??[]).filter(value=>{const os=value.capabilities?.os.toLowerCase()??"";return os.includes("macos")||os.includes("mac os")||os.includes("darwin")})],
- ] as const;
- return <section className="xcss-content-stack"><InstanceHeaderActions create={()=>void createDevice()} refresh={refreshPage} refreshing={creating}/><InstancePageNavigation page={page} detailsDisabled={!device} navigate={value=>{window.location.hash=device&&value!=="instances"?`${value}/${device.id}`:value}}/><h1 className="xcss-visually-hidden">{t("Sunshine 设备管理", "Sunshine device management")}</h1>
- {page!=="account"&&createFailure&&<ErrorState requestId={createFailure.requestId}>{t("实例未能创建，请刷新列表核对后重试。", "The instance could not be created. Refresh the list before retrying.")}</ErrorState>}
- {page!=="account"&&deviceFailure&&<ErrorState requestId={deviceFailure.requestId} onRetry={refresh}>{t("无法加载设备列表", "Unable to load devices")}</ErrorState>}
- {page!=="account"&&fieldFailure&&<ErrorState requestId={fieldFailure.requestId} onRetry={refresh}>{t("无法加载配置字段定义", "Unable to load configuration field definitions")}</ErrorState>}
- {page==="account"?<AccountPage key={generation}/>:page==="instances"?<div className="xcss-content-stack" aria-label={t("Sunshine 实例", "Sunshine instances")}>
-  <section className="xcss-content-stack">{devices===null?<LoadingState>{t("正在加载设备…", "Loading devices…")}</LoadingState>:<Table className="xcss-statistics-table" aria-label={t("实例统计", "Instance statistics")}><thead><tr><th>{t("统计项", "Metric")}</th><th>{t("总数 / 在线", "Total / online")}</th></tr></thead><tbody>{statistics.map(([label,values])=><tr key={label}><th scope="row">{label}</th><td>{values.length} / {values.filter(value=>value.client_online).length}</td></tr>)}</tbody></Table>}</section>
-  <section className="xcss-content-stack" aria-label={t("实例", "Instances")}>{devices===null?<LoadingState>{t("正在加载设备…", "Loading devices…")}</LoadingState>:<DeviceInstances devices={devices} select={id=>{setSelected(id);window.location.hash=`details/${id}`}} removed={id=>{if(selected===id)setSelected(null);if(ticket?.device.id===id)setTicket(null);refresh()}}/>}</section>
- </div>
- :device?<ClientWorkspace key={device.id} device={device} fieldDefinitions={fieldDefinitions} refreshSignal={generation} configRefreshSignal={configRefreshSignal} page={page} changed={refresh} removed={()=>{setSelected(null);setTicket(null);window.location.hash="instances";refresh()}} ticket={ticket?.device.id===device.id?ticket:null}/>:devices===null?<LoadingState>{t("正在加载设备…", "Loading devices…")}</LoadingState>:<EmptyState>{t("暂无实例，请新建并注册 客户端。", "No instances yet. Create an instance and register a client.")}</EmptyState>}
- </section>
+ const{client}=useAdminApplication();const[location,setLocation]=useState(route);const[devices,setDevices]=useState<DeviceInfo[]|null>(null);const[ticket,setTicket]=useState<Ticket|null>(null);const[failure,setFailure]=useState<{requestId?:string}|null>(null);const[revision,setRevision]=useState(0);const[creating,setCreating]=useState(false);
+ const refresh=()=>setRevision(v=>v+1);
+ useEffect(()=>{const changed=()=>setLocation(route());window.addEventListener("hashchange",changed);return()=>window.removeEventListener("hashchange",changed)},[]);
+ useEffect(()=>{let active=true;const controller=new AbortController();let timer:number|undefined;async function load(){try{const value=await client.request(`${CURRENT_API_PREFIX}/devices`,isDevices,{signal:controller.signal});if(active){setDevices(value);setFailure(null)}}catch(error){if(active)setFailure({requestId:errorRequestId(error)})}finally{if(active)timer=window.setTimeout(load,5000)}}void load();return()=>{active=false;controller.abort();if(timer!==undefined)clearTimeout(timer)}},[client,revision]);
+ async function create(){if(creating)return;setCreating(true);try{const value=await client.request(`${CURRENT_API_PREFIX}/devices`,isTicket,{method:"POST",body:JSON.stringify({name:t("新实例","New instance")})});setTicket(value);window.location.hash=`details/${value.device.id}`;refresh()}catch(error){setFailure({requestId:errorRequestId(error)})}finally{setCreating(false)}}
+ const device=devices?.find(d=>d.id===location.id);
+ return <section className="xcss-content-stack"><InstanceHeaderActions create={()=>void create()} refresh={refresh} refreshing={creating}/><nav aria-label={t("实例导航","Instance navigation")} className="xcss-actions"><a href="#instances">{t("实例","Instances")}</a>{device&&<a href={`#details/${device.id}`}>{t("详细信息","Details")}</a>}</nav><h1>{t("RustDesk 设备管理","RustDesk device management")}</h1>{failure&&<ErrorState requestId={failure.requestId} onRetry={refresh}>{t("无法读取管理状态","Unable to load management state")}</ErrorState>}{location.page==="account"?<AccountPage/>:location.page==="details"&&device?<ClientWorkspace key={device.id} device={device} refreshSignal={revision} ticket={ticket?.device.id===device.id?ticket:null} changed={refresh}/>:devices===null?<LoadingState>{t("正在读取实例…","Loading instances…")}</LoadingState>:<DeviceInstances devices={devices} select={id=>{window.location.hash=`details/${id}`}} removed={id=>{if(ticket?.device.id===id)setTicket(null);refresh()}}/>}</section>;
 }
 export default createXcssAdminApplication({product:{name:"xscs"},client:adminApi,navigation:[],loginLandingHref:"#instances",routes:<DevicesPage/>});

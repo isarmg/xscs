@@ -272,13 +272,13 @@ fn add_operation_material(directory: &Path, database: &mut Value) {
         "query":"SELECT operation_id,action,target_key,namespace AS resource_namespace,CAST(request_payload AS TEXT) AS payload_json,lower(hex(request_fingerprint)) AS request_fingerprint FROM _common_operations",
         "fingerprint":{"algorithm":"hmac-sha256","hkdf_salt":std::str::from_utf8(HKDF_SALT).unwrap(),"hkdf_info":std::str::from_utf8(REQUEST_FINGERPRINT_INFO).unwrap()},
         "request_schema":request_schema,"action_pointer":"/command/kind","binding_device_pointer":"/binding/device_id",
-        "binding_installation_pointer":"/binding/installation_id","namespace_prefix":"xscc.client.v1","commands":commands});
+        "binding_installation_pointer":"/binding/installation_id","namespace_prefix":"xscc.client.v2","commands":commands});
     let cases: Value =
         serde_json::from_str(include_str!("../../../schema/validation/operation.json")).unwrap();
     database["validation"].as_array_mut().unwrap().push(json!({"kind":"wrapped-sgev-operation-v1","description":"Current durable request SGEV, keyed fingerprint, strict plaintext and dispatch identity","parameters":parameters,"cases":cases}));
     let definitions = xscs_protocol::persistent_json_definitions();
     for (name, column) in [
-        ("snapshot", "snapshot_json"),
+        ("snapshot", "diagnostics_json"),
         ("capabilities", "capabilities_json"),
     ] {
         let definition = &definitions[name];

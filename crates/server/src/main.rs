@@ -7,7 +7,7 @@ use xscs::{
 };
 
 #[derive(Parser)]
-#[command(name = "xscs", version, about = "Sunshine management service")]
+#[command(name = "xscs", version, about = "RustDesk management service")]
 struct Cli {
     #[arg(long)]
     root: PathBuf,

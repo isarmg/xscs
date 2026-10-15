@@ -9,7 +9,7 @@ import "@xcss/web/web-fonts/fonts.css";
 import "@xcss/web/admin-ui/styles.css";
 import "@xcss/web/design-tokens/reset.css";
 import "@xcss/web/design-tokens/accessibility.css";
-import "./sunshine.css";
+import "./rustdesk.css";
 
 import App from "./App";
 

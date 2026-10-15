@@ -13,12 +13,8 @@ CREATE TABLE devices (
     session_id TEXT,
     last_seen_at_micros INTEGER,
     health_at_micros INTEGER,
-    sunshine_reachable INTEGER CHECK(sunshine_reachable IS NULL OR sunshine_reachable IN (0,1)),
     capabilities_json TEXT,
-    snapshot_json TEXT,
-    saved_revision TEXT,
-    configuration_state TEXT NOT NULL DEFAULT 'unknown'
-        CHECK(configuration_state IN ('unknown','awaiting_restart','pending_verification')),
+    diagnostics_json TEXT,
     created_at_micros INTEGER NOT NULL,
     updated_at_micros INTEGER NOT NULL
 );

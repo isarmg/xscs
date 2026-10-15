@@ -1,4 +1,4 @@
-//! Sunshine-specific domains and lookup digests over xcss secret types.
+//! Product-owned domains and lookup digests over xcss secret types.
 
 use std::sync::Arc;
 
@@ -200,10 +200,10 @@ mod tests {
     fn operation_envelope_binds_id_action_and_key() {
         let secret = SecretBox::new("one", [3; 32]).unwrap();
         let a = secret
-            .encrypt_operation_request("op-a", "sunshine.config.patch", "payload")
+            .encrypt_operation_request("op-a", "rustdesk.other", "payload")
             .unwrap();
         let b = secret
-            .encrypt_operation_request("op-a", "sunshine.config.patch", "payload")
+            .encrypt_operation_request("op-a", "rustdesk.other", "payload")
             .unwrap();
         assert_ne!(a, b);
         assert!(a.starts_with("xscs:sgev1:"));
@@ -212,29 +212,29 @@ mod tests {
         let foreign_namespace = a.replacen("xscs:sgev1:", "foreign:sgev1:", 1);
         assert!(
             secret
-                .decrypt_operation_request("op-a", "sunshine.config.patch", &foreign_namespace)
+                .decrypt_operation_request("op-a", "rustdesk.other", &foreign_namespace)
                 .is_err()
         );
         assert_eq!(
             secret
-                .decrypt_operation_request("op-a", "sunshine.config.patch", &a)
+                .decrypt_operation_request("op-a", "rustdesk.other", &a)
                 .unwrap(),
             "payload"
         );
         assert!(
             secret
-                .decrypt_operation_request("op-b", "sunshine.config.patch", &a)
+                .decrypt_operation_request("op-b", "rustdesk.other", &a)
                 .is_err()
         );
         assert!(
             secret
-                .decrypt_operation_request("op-a", "sunshine.restart", &a)
+                .decrypt_operation_request("op-a", "rustdesk.diagnostics.read", &a)
                 .is_err()
         );
         assert!(
             SecretBox::new("two", [4; 32])
                 .unwrap()
-                .decrypt_operation_request("op-a", "sunshine.config.patch", &a)
+                .decrypt_operation_request("op-a", "rustdesk.other", &a)
                 .is_err()
         );
     }

@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main, 'codex/client-cli-*']
+    branches: [main, 'codex/client-cli-*', 'feat/management-prep']
   pull_request:
   workflow_dispatch:
 

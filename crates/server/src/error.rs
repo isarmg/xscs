@@ -103,7 +103,7 @@ impl IntoResponse for AppError {
             // Upstream diagnostics can contain remote URLs, response snippets
             // or transport details. They remain available to the protected
             // server log through Display but never cross the API boundary.
-            Self::Upstream(_) => "Sunshine upstream request failed".to_string(),
+            Self::Upstream(_) => "Upstream service request failed".to_string(),
             Self::TooManyRequests { retry_after } => {
                 format!("too many requests; retry after {retry_after} seconds")
             }
@@ -116,7 +116,7 @@ impl IntoResponse for AppError {
             Self::Crypto | Self::Internal(_) => "internal error".to_string(),
         };
         if status.is_server_error() {
-            tracing::error!(error = %self, "Sunshine worker request failed");
+            tracing::error!(error = %self, "Management request failed");
         }
         let envelope = ErrorEnvelope::with_code(code, message).retryable(retryable);
         let mut response = (status, Json(envelope)).into_response();
@@ -232,7 +232,7 @@ mod tests {
             value,
             json!({
                 "code": "upstream_error",
-                "message": "Sunshine upstream request failed",
+                "message": "Upstream service request failed",
                 "retryable": true
             })
         );

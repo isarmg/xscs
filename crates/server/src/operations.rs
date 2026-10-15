@@ -23,7 +23,7 @@ use xcss::operations::{
 #[cfg(test)]
 use xscs_protocol::PROTOCOL;
 use xscs_protocol::{
-    Binding, Capabilities, Command, ConfigSnapshot, MAX_REPORT_BYTES, Permission, Report,
+    Binding, Capabilities, Command, DiagnosticSnapshot, MAX_REPORT_BYTES, Permission, Report,
     TASK_PROTOCOL, Task,
 };
 
@@ -124,7 +124,7 @@ async fn check_history_capacity(
         .await
         .map_err(internal)??
     };
-    // Each absent report may still need its full protocol allowance plus a stored configuration snapshot.
+    // Each absent report may still need its full protocol allowance plus a stored diagnostic observation.
     // Charge twice for main database plus WAL, and reserve future state/audit pages for
     // every retained operation. This deliberately keeps uncertain and resolved facts.
     let existing_reserve = (missing_reports.max(0) as u64)
@@ -352,34 +352,24 @@ struct OperationListRow {
     error_code: Option<String>,
     oversized_text: bool,
 }
-async fn record_configuration(
+async fn record_diagnostics(
     tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
     device: &str,
     report: &Report,
 ) -> AppResult<()> {
-    match report {
-        Report::ConfigRead { snapshot } => {
-            sqlx::query("UPDATE devices SET snapshot_json=?,configuration_state=CASE WHEN configuration_state='awaiting_restart' THEN configuration_state ELSE 'pending_verification' END WHERE device_id=?")
-                    .bind(serde_json::to_string(snapshot).map_err(internal)?)
-                    .bind(device)
-                    .execute(&mut **tx)
-                    .await?;
-        }
-        Report::ConfigSaved { snapshot } | Report::RestartAcknowledged { snapshot, .. } => {
-            let state = if matches!(report, Report::ConfigSaved { .. }) {
-                "awaiting_restart"
-            } else {
-                "pending_verification"
-            };
-            sqlx::query("UPDATE devices SET snapshot_json=?,saved_revision=?,configuration_state=? WHERE device_id=?").bind(serde_json::to_string(snapshot).map_err(internal)?).bind(&snapshot.revision).bind(state).bind(device).execute(&mut **tx).await?;
-        }
-        _ => {}
+    if let Report::DiagnosticsRead { snapshot } = report {
+        sqlx::query("UPDATE devices SET diagnostics_json=?,health_at_micros=? WHERE device_id=?")
+            .bind(serde_json::to_string(snapshot).map_err(internal)?)
+            .bind(db::now_micros()?)
+            .bind(device)
+            .execute(&mut **tx)
+            .await?;
     }
     Ok(())
 }
 
 fn namespace(device_id: &str, installation_id: &Uuid, resource: &str) -> String {
-    format!("xscc.client.v1.{device_id}.{installation_id}.{resource}")
+    format!("xscc.client.v2.{device_id}.{installation_id}.{resource}")
 }
 fn resource(command: &Command) -> &'static str {
     xscs_protocol::command_storage_contract(command).resource
@@ -387,31 +377,10 @@ fn resource(command: &Command) -> &'static str {
 pub fn action(command: &Command) -> &'static str {
     xscs_protocol::command_storage_contract(command).action
 }
-fn permission(command: &Command) -> Permission {
-    match command {
-        Command::ReadConfig {} => Permission::ReadConfig,
-        Command::PatchConfig { .. } | Command::SaveConfig { .. } => Permission::WriteConfig,
-        Command::Restart { .. } => Permission::Restart,
-        Command::ListApplications {} => Permission::ReadApplications,
-        Command::SaveApplication { .. }
-        | Command::DeleteApplication { .. }
-        | Command::CloseApplication { .. }
-        | Command::UploadCover { .. } => Permission::ManageApplications,
-        Command::SubmitPairingPin { .. }
-        | Command::ListPendingPairings {}
-        | Command::ListPairedClients {}
-        | Command::SetPairedClientEnabled { .. }
-        | Command::UnpairClient { .. }
-        | Command::UnpairAllClients { .. } => Permission::ManagePairing,
-        Command::ReadLogs { .. }
-        | Command::ReadDiagnostics {}
-        | Command::ReadVirtualInputStatus {} => Permission::ReadDiagnostics,
-        Command::RunMaintenance { .. } => Permission::MaintainSunshine,
-        Command::ReadServiceStatus {} | Command::ControlService { .. } => {
-            Permission::ControlService
-        }
-    }
+fn permission(_command: &Command) -> Permission {
+    Permission::ReadDiagnostics
 }
+
 fn internal(error: impl Into<anyhow::Error>) -> AppError {
     AppError::Internal(error.into())
 }
@@ -702,7 +671,7 @@ impl OperationManager {
         };
         if let Err(error) = check_history_capacity(&mut tx, &value, self.history_capacity).await {
             if matches!(error, AppError::HistoryCapacity) {
-                tracing::warn!(event = "xscs.instance.task_capacity_exhausted", instance_id = %id, instance_type = "sunshine", error_code = "history_capacity_exhausted", "Task not accepted: history capacity exhausted");
+                tracing::warn!(event = "xscs.instance.task_capacity_exhausted", instance_id = %id, instance_type = "rustdesk", error_code = "history_capacity_exhausted", "Task not accepted: history capacity exhausted");
             }
             return Err(error);
         }
@@ -971,14 +940,14 @@ impl OperationManager {
     // first fences interrupted leases as unknown; close only the read lane with
     // its explicit unable-to-confirm outcome, preserving reports and audit history.
     async fn release_uncertain_reads(&self) -> AppResult<()> {
-        let pending: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM _common_operations WHERE namespace LIKE 'xscc.client.v1.%.read' AND state='unknown')")
+        let pending: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM _common_operations WHERE namespace LIKE 'xscc.client.v2.%.read' AND state='unknown')")
             .fetch_one(&self.pool).await?;
         if !pending {
             return Ok(());
         }
         let mut tx = self.pool.begin_with("BEGIN IMMEDIATE").await?;
         let ids: Vec<String> = sqlx::query_scalar(
-            "SELECT operation_id FROM _common_operations WHERE namespace LIKE 'xscc.client.v1.%.read' AND state='unknown'",
+            "SELECT operation_id FROM _common_operations WHERE namespace LIKE 'xscc.client.v2.%.read' AND state='unknown'",
         )
         .fetch_all(&mut *tx)
         .await?;
@@ -996,7 +965,11 @@ impl OperationManager {
         Ok(())
     }
     pub async fn recover_startup(&self) -> AppResult<u64> {
-        sqlx::query("UPDATE devices SET session_id=NULL,last_seen_at_micros=NULL,health_at_micros=NULL,sunshine_reachable=NULL").execute(&self.pool).await?;
+        sqlx::query(
+            "UPDATE devices SET session_id=NULL,last_seen_at_micros=NULL,health_at_micros=NULL",
+        )
+        .execute(&self.pool)
+        .await?;
         let spaces: Vec<String> =
             sqlx::query_scalar("SELECT DISTINCT namespace FROM _common_operations")
                 .fetch_all(&self.pool)
@@ -1170,29 +1143,12 @@ impl OperationManager {
                 Some(&stored.operation.operation_id),
             )
             .await?;
-            record_configuration(&mut tx, &stored.operation.target_key, &report).await?;
+            record_diagnostics(&mut tx, &stored.operation.target_key, &report).await?;
             tx.commit().await?;
             return Ok(());
         } else {
             let transition = match &report {
-                Report::ConfigRead { .. }
-                | Report::ConfigSaved { .. }
-                | Report::RestartAcknowledged { .. }
-                | Report::ApplicationsRead { .. }
-                | Report::ApplicationSaved { .. }
-                | Report::ApplicationDeleted { .. }
-                | Report::ApplicationClosed {}
-                | Report::CoverUploaded { .. }
-                | Report::PairingPinSubmitted {}
-                | Report::PendingPairingsRead { .. }
-                | Report::PairedClientsRead { .. }
-                | Report::PairedClientUpdated { .. }
-                | Report::LogsRead { .. }
-                | Report::DiagnosticsRead { .. }
-                | Report::VirtualInputStatusRead { .. }
-                | Report::MaintenanceCompleted { .. }
-                | Report::ServiceStatusRead { .. }
-                | Report::ServiceControlled { .. } => Transition::Succeed,
+                Report::DiagnosticsRead { .. } => Transition::Succeed,
                 Report::Unknown { .. } if resource(&task.command) == "read" => Transition::Fail {
                     code: "read_interrupted".into(),
                     retryable: false,
@@ -1201,13 +1157,8 @@ impl OperationManager {
                 Report::Unknown { .. } => Transition::MarkIndeterminate {
                     code: "client_uncertain".into(),
                 },
-                Report::Conflict { .. } | Report::Rejected { .. } => Transition::Fail {
-                    code: if matches!(report, Report::Conflict { .. }) {
-                        "configuration_conflict"
-                    } else {
-                        "client_rejected"
-                    }
-                    .into(),
+                Report::Rejected { .. } => Transition::Fail {
+                    code: "client_rejected".into(),
                     retryable: false,
                     retry_not_before_micros: db::now_micros()?,
                 },
@@ -1222,7 +1173,7 @@ impl OperationManager {
             .await
             .map_err(internal)?;
         }
-        record_configuration(&mut tx, &stored.operation.target_key, &report).await?;
+        record_diagnostics(&mut tx, &stored.operation.target_key, &report).await?;
         tx.commit().await?;
         Ok(())
     }
@@ -1288,9 +1239,10 @@ impl OperationManager {
         Ok(())
     }
 }
-pub fn validate_snapshot(snapshot: &ConfigSnapshot) -> AppResult<()> {
-    xscs_protocol::validate_stored_snapshot(snapshot)
-        .map_err(|_| AppError::BadRequest("Client 配置响应无效".into()))
+pub fn validate_diagnostics(snapshot: &DiagnosticSnapshot) -> AppResult<()> {
+    snapshot
+        .validate()
+        .map_err(|_| AppError::BadRequest("Client 诊断观察无效".into()))
 }
 
 fn validate_report(command: &Command, report: &Report) -> AppResult<()> {
@@ -1325,20 +1277,9 @@ mod capacity_tests {
             protocol: PROTOCOL.into(),
             client_version: "test".into(),
             os: xscs_protocol::ClientOs::LinuxX86_64,
-            sunshine_version: xscs_protocol::SUNSHINE_VERSION.into(),
-            restart_allowed: true,
-            managed_fields: xscs_protocol::config::FIELD_DEFINITIONS
-                .iter()
-                .map(|field| field.key.to_owned())
-                .collect(),
-            configuration_overwrite: true,
-            application_management: true,
-            application_host_commands_allowed: true,
-            moonlight_pairing_management: true,
-            pending_pairing_listing: true,
+            backend: xscs_protocol::Backend::Rustdesk,
+            execution_mode: xscs_protocol::ExecutionMode::Embedded,
             diagnostics: true,
-            maintenance: true,
-            service_control: true,
         };
         sqlx::query("UPDATE devices SET capabilities_json=? WHERE device_id=?")
             .bind(serde_json::to_string(&capabilities).unwrap())
@@ -1370,7 +1311,7 @@ mod capacity_tests {
         manager.history_capacity.device_rows = 1;
         manager.history_capacity.total_rows = 2;
         let accepted = manager
-            .enqueue("admin", &first, "accepted", Command::ReadConfig {})
+            .enqueue("admin", &first, "accepted", Command::ReadDiagnostics {})
             .await
             .unwrap();
         assert!(matches!(
@@ -1380,19 +1321,18 @@ mod capacity_tests {
             Err(AppError::HistoryCapacity)
         ));
         let repeated = manager
-            .enqueue("admin", &first, "accepted", Command::ReadConfig {})
+            .enqueue("admin", &first, "accepted", Command::ReadDiagnostics {})
             .await
             .unwrap();
         assert_eq!(accepted.operation_id, repeated.operation_id);
-        assert!(matches!(
-            manager
-                .enqueue("admin", &first, "accepted", Command::ReadDiagnostics {})
-                .await,
-            Err(AppError::HistoryCapacity)
-        ));
         assert!(
             manager
-                .enqueue("admin", &second, "other-instance", Command::ReadConfig {})
+                .enqueue(
+                    "admin",
+                    &second,
+                    "other-instance",
+                    Command::ReadDiagnostics {}
+                )
                 .await
                 .is_ok()
         );
@@ -1404,7 +1344,7 @@ mod capacity_tests {
         let (third, _) = registered(&manager.pool).await;
         assert!(matches!(
             manager
-                .enqueue("admin", &third, "global-full", Command::ReadConfig {})
+                .enqueue("admin", &third, "global-full", Command::ReadDiagnostics {})
                 .await,
             Err(AppError::HistoryCapacity)
         ));
@@ -1413,7 +1353,7 @@ mod capacity_tests {
             .store
             .claim_next(
                 &format!(
-                    "xscc.client.v1.{first}.{}.read",
+                    "xscc.client.v2.{first}.{}.read",
                     db::get_device(&manager.pool, &first)
                         .await
                         .unwrap()
@@ -1428,13 +1368,8 @@ mod capacity_tests {
             .unwrap()
             .unwrap();
         assert_eq!(lease.operation.operation_id, accepted.operation_id);
-        let result = serde_json::to_vec(&Report::ConfigRead {
-            snapshot: ConfigSnapshot {
-                revision: "a".repeat(64),
-                sunshine_version: xscs_protocol::SUNSHINE_VERSION.into(),
-                fields: std::collections::BTreeMap::new(),
-                effectiveness: xscs_protocol::Effectiveness::PendingVerification,
-            },
+        let result = serde_json::to_vec(&Report::DiagnosticsRead {
+            snapshot: DiagnosticSnapshot::awaiting_integration(),
         })
         .unwrap();
         let finish = manager
@@ -1466,18 +1401,18 @@ mod capacity_tests {
         let (_directory, mut manager, first, second) = fixture().await;
         manager.history_capacity.device_bytes = 900 * 1024;
         let accepted = manager
-            .enqueue("admin", &first, "first", Command::ReadConfig {})
+            .enqueue("admin", &first, "first", Command::ReadDiagnostics {})
             .await
             .unwrap();
         assert!(matches!(
             manager
-                .enqueue("admin", &first, "device-full", Command::ReadConfig {})
+                .enqueue("admin", &first, "device-full", Command::ReadDiagnostics {})
                 .await,
             Err(AppError::HistoryCapacity)
         ));
         assert_eq!(
             manager
-                .enqueue("admin", &first, "first", Command::ReadConfig {})
+                .enqueue("admin", &first, "first", Command::ReadDiagnostics {})
                 .await
                 .unwrap()
                 .operation_id,
@@ -1489,7 +1424,7 @@ mod capacity_tests {
                     "admin",
                     &second,
                     "different-instance",
-                    Command::ReadConfig {}
+                    Command::ReadDiagnostics {}
                 )
                 .await
                 .is_ok()
@@ -1509,19 +1444,19 @@ mod capacity_tests {
     {
         let (_directory, mut manager, first, _) = fixture().await;
         let accepted = manager
-            .enqueue("admin", &first, "accepted", Command::ReadConfig {})
+            .enqueue("admin", &first, "accepted", Command::ReadDiagnostics {})
             .await
             .unwrap();
         manager.history_capacity.database_bytes = 1;
         assert!(matches!(
             manager
-                .enqueue("admin", &first, "bytes-full", Command::ReadConfig {})
+                .enqueue("admin", &first, "bytes-full", Command::ReadDiagnostics {})
                 .await,
             Err(AppError::HistoryCapacity)
         ));
         assert_eq!(
             manager
-                .enqueue("admin", &first, "accepted", Command::ReadConfig {})
+                .enqueue("admin", &first, "accepted", Command::ReadDiagnostics {})
                 .await
                 .unwrap()
                 .operation_id,
@@ -1531,7 +1466,7 @@ mod capacity_tests {
         manager.history_capacity.free_floor = u64::MAX;
         assert!(matches!(
             manager
-                .enqueue("admin", &first, "disk-full", Command::ReadConfig {})
+                .enqueue("admin", &first, "disk-full", Command::ReadDiagnostics {})
                 .await,
             Err(AppError::HistoryCapacity)
         ));

@@ -145,7 +145,7 @@ async fn exact_current_schema_is_durable_and_self_identifying() {
         (
             1,
             database_schema::APPLICATION.to_string(),
-            "v1".to_string(),
+            "v2".to_string(),
             database_schema::SCHEMA_REVISION,
             database_schema::SCHEMA_SHA256.to_string(),
         )

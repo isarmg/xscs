@@ -1,8 +1,4 @@
-//! xscs is an independent service for managing Sunshine hosts.
-//!
-//! Product state and Sunshine credentials remain local; shared platform
-//! metadata and administrator policy are supplied by xcss.
-
+//! RustDesk-only control plane. The management client runs inside RustDesk.
 pub mod config;
 mod config_definition;
 pub mod crypto;

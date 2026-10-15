@@ -1,33 +1,9 @@
-# xscs 实现概览
+# 实现边界
 
-xscs 将业务服务和管理 Web 放在一个 Linux AMD64 GNU 可执行程序中，以单个 SQLite 数据库保存状态。xscc 在受管主机独立运行，协议类型由本仓库维护。
+xscs 管理 Web、设备绑定、凭据撤销、持久任务、审计与 SQLite。公共认证、运行目录、SQLite 和服务生命周期继续使用固定版本的 xcss。
 
-## 从哪里读源码
+xscc 是嵌入 RustDesk 的 Rust 库。RustDesk 提供已有 Tokio runtime、身份与受保护凭据、NativeHost、NativeJournal 和 shutdown；不存在独立客户端服务或本机 HTTPS/IPC 适配层。媒体和对等连接认证由 RustDesk 自己负责。
 
-| 目录 | 职责 |
-|---|---|
-| `crates/protocol/` | 通信、任务、配置字段与结果类型 |
-| `crates/server/src/` | HTTP、配置、操作调度、持久化和秘密上下文 |
-| `crates/server/tests/` | 路由、存储、认证、并发与发行行为测试 |
-| `schema/` | 当前 DDL 与生成的结构定义 |
-| `web/src/` | 产品页面、API 调用与响应校验 |
-| `scripts/` | 本地启动、构建、检查和打包 |
-| `deploy/` | systemd及设备反向代理示例 |
+协议唯一源码为 `crates/protocol`，当前 `xscs-management/2`、`xscs-task/2`、WSS 子协议 `xscs-management.v2`。仅支持 RustDesk、embedded 执行方式和 ReadDiagnostics。未接入时明确报告 awaiting_integration；测试替身不代表可用的原生集成。
 
-根 Cargo.toml 统一 workspace 依赖和 lint，Cargo.lock 锁定依赖图。公共配置、认证、日志、SQLite 和生命周期使用 xcss；管理页面使用单个 @xcss/web 包。产品继续维护自己的业务模型和持久条件，见[公共库](common-support.md)。
-
-## 一条请求经过什么
-
-浏览器通过 Session/CSRF 提交任务，Server 持久化后派发给 Client。Client 在副作用前保存执行意图、完成后保存结果；Server 收存结果再确认。WSS 断开后双方以持久事实继续，而非从页面状态推断结果。
-
-通信身份为 xscs-management/1，WebSocket 子协议为 xscs-management.v1；持久业务任务身份为 xscs-task/1。任务指纹涵盖协议、实例绑定、权限和命令，通信能力由 Client Hello 声明。详见[通信可靠性](communication-reliability.md)。
-
-## 状态与资源
-
-XSSI 使用本仓库构建导出的当前配置约束、DDL、凭据及资源定义，由独立辅助程序建立首个管理员、数据库和密钥。业务 binary 只接受 `--root ROOT` 运行，验证当前结构和已有密钥后启动；不会执行安装或离线维护。SHA-256 校验清单绑定同次构建的源码、server、辅助程序、资源和统一服务模板。
-
-构建、测试、发行步骤及验证范围见[开发指南](development.md)。Rust 原生接口结论见[unsafe 审查](unsafe-audit.md)。
-
-服务启动先检查已有目录、密钥和数据库文件，再取得实例与业务数据锁，最后只捕获一次位于 ROOT/run 的私有 SQLite 快照。在同一数据库 generation 上验证当前结构、完整性、外键、管理员和实例授权，校验完成后才打开生产数据库。只读检查使用同一流程，结束后清理快照，不写源数据。
-
-启动校验逐行读取设备，在同一行上检查配置观测、能力、授权密文与对应摘要，不把全部设备视图或全部密文同时装入内存；操作记录按固定批次读取标识并逐条检查。
+数据库 schema revision 2，设备保存结构化诊断而非远程配置快照。旧状态需要保全，当前分支不提供自动迁移。产品 DDL 是 `schema/product.sql`，生成文件由固定 xcss schema-compose 工具生成，指纹采用 xcss 对 sqlite_schema 的规范算法。

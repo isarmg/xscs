@@ -1,6 +1,6 @@
 use crate::error::{AppError, AppResult};
 use serde::{Deserialize, Serialize};
-use xscs_protocol::{Capabilities, ConfigSnapshot};
+use xscs_protocol::{Capabilities, DiagnosticSnapshot};
 
 #[derive(Debug, Serialize)]
 pub struct DeviceView {
@@ -10,9 +10,7 @@ pub struct DeviceView {
     pub pairing_pending: bool,
     pub revoked: bool,
     pub client_online: bool,
-    pub sunshine_reachable: Option<bool>,
-    pub configuration_state: String,
-    pub snapshot: Option<ConfigSnapshot>,
+    pub diagnostics: Option<DiagnosticSnapshot>,
     pub capabilities: Option<Capabilities>,
     pub last_seen_at_micros: Option<i64>,
 }

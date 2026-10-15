@@ -10,7 +10,8 @@ use sqlx::{Sqlite, SqlitePool, Transaction};
 use std::time::{SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
 use xscs_protocol::{
-    AUTHORIZATION_CODE_LENGTH, Binding, Capabilities, ConfigSnapshot, is_valid_authorization_code,
+    AUTHORIZATION_CODE_LENGTH, Binding, Capabilities, DiagnosticSnapshot,
+    is_valid_authorization_code,
 };
 pub const SCHEMA: &str = "xscs";
 pub use crate::database_schema::open_existing;
@@ -31,11 +32,8 @@ pub struct Device {
     pub session_id: Option<String>,
     pub last_seen_at_micros: Option<i64>,
     pub health_at_micros: Option<i64>,
-    pub sunshine_reachable: Option<bool>,
     pub capabilities_json: Option<String>,
-    pub snapshot_json: Option<String>,
-    pub saved_revision: Option<String>,
-    pub configuration_state: String,
+    pub diagnostics_json: Option<String>,
     pub created_at_micros: i64,
     pub updated_at_micros: i64,
 }
@@ -46,62 +44,36 @@ impl Device {
             && self
                 .last_seen_at_micros
                 .is_some_and(|seen| now.saturating_sub(seen) < 45_000_000);
-        if self
-            .snapshot_json
-            .as_ref()
-            .is_some_and(|value| value.len() > xscs_protocol::MAX_REPORT_BYTES)
-            || self
-                .capabilities_json
-                .as_ref()
-                .is_some_and(|value| value.len() > xscs_protocol::MAX_REPORT_BYTES)
+        for json in [&self.diagnostics_json, &self.capabilities_json]
+            .into_iter()
+            .flatten()
         {
-            return Err(AppError::Internal(anyhow::anyhow!(
-                "stored Client JSON exceeds the current byte boundary"
-            )));
+            if json.len() > xscs_protocol::MAX_REPORT_BYTES {
+                return Err(AppError::Internal(anyhow::anyhow!(
+                    "stored Client JSON exceeds byte boundary"
+                )));
+            }
         }
-        let snapshot: Option<ConfigSnapshot> = self
-            .snapshot_json
+        let diagnostics: Option<DiagnosticSnapshot> = self
+            .diagnostics_json
             .as_deref()
             .map(serde_json::from_str)
             .transpose()
-            .map_err(|_| {
-                AppError::Internal(anyhow::anyhow!(
-                    "stored configuration observation is invalid"
-                ))
-            })?;
-        if let Some(snapshot) = &snapshot {
-            crate::operations::validate_snapshot(snapshot).map_err(|_| {
-                AppError::Internal(anyhow::anyhow!(
-                    "stored configuration observation is invalid"
-                ))
-            })?;
+            .map_err(|error| AppError::Internal(error.into()))?;
+        if let Some(snapshot) = &diagnostics {
+            crate::operations::validate_diagnostics(snapshot)?;
         }
         let capabilities: Option<Capabilities> = self
             .capabilities_json
             .as_deref()
             .map(serde_json::from_str)
             .transpose()
-            .map_err(|_| {
-                AppError::Internal(anyhow::anyhow!(
-                    "stored Client capabilities do not satisfy the current contract"
-                ))
-            })?;
-        if let Some(capabilities) = &capabilities {
-            capabilities.validate().map_err(|_| {
-                AppError::Internal(anyhow::anyhow!(
-                    "stored Client capabilities do not satisfy the current contract"
-                ))
-            })?;
+            .map_err(|error| AppError::Internal(error.into()))?;
+        if let Some(value) = &capabilities {
+            value
+                .validate()
+                .map_err(|error| AppError::Internal(error.into()))?;
         }
-        let state = if self.saved_revision.as_ref().is_some_and(|saved| {
-            snapshot
-                .as_ref()
-                .is_some_and(|value| &value.revision != saved)
-        }) {
-            "drift_detected".to_owned()
-        } else {
-            self.configuration_state.clone()
-        };
         Ok(DeviceView {
             id: self.device_id.clone(),
             name: self.name.clone(),
@@ -111,17 +83,7 @@ impl Device {
                 && self.revoked_at_micros.is_none(),
             revoked: self.revoked_at_micros.is_some(),
             client_online: online,
-            sunshine_reachable: if online
-                && self
-                    .health_at_micros
-                    .is_some_and(|seen| now.saturating_sub(seen) < 30_000_000)
-            {
-                self.sunshine_reachable
-            } else {
-                None
-            },
-            configuration_state: state,
-            snapshot,
+            diagnostics,
             capabilities,
             last_seen_at_micros: self.last_seen_at_micros,
         })
@@ -214,8 +176,7 @@ pub async fn rotate_authorization(
     let changed = sqlx::query(
         "UPDATE devices SET enrollment_hash=?,authorization_code_enc=?,installation_id=NULL,\
         credential_hash=NULL,session_id=NULL,last_seen_at_micros=NULL,health_at_micros=NULL,\
-         sunshine_reachable=NULL,capabilities_json=NULL,snapshot_json=NULL,saved_revision=NULL,\
-         configuration_state='unknown',updated_at_micros=? \
+         capabilities_json=NULL,diagnostics_json=NULL,updated_at_micros=? \
          WHERE device_id=? AND revoked_at_micros IS NULL",
     )
     .bind(token_hash(authorization_code).as_slice())

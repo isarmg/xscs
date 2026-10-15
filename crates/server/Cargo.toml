@@ -6,7 +6,7 @@ rust-version.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "xscs: Sunshine management server with local authentication"
+description = "xscs: embedded RustDesk management server with local authentication"
 publish = false
 
 [dependencies]

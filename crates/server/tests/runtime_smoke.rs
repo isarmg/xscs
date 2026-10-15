@@ -168,13 +168,13 @@ async fn real_process_login_device_changes_and_restart_preserve_state() {
         root,
         &base,
         "POST",
-        "/api/v1/sunshine/devices",
+        "/api/v1/rustdesk/devices",
         Some(json!({"name":"Original smoke device"})),
         Some(csrf),
     );
     let id = ticket["device"]["id"].as_str().unwrap();
     assert_eq!(ticket["device"]["name"], "Original smoke device");
-    let path = format!("/api/v1/sunshine/devices/{id}");
+    let path = format!("/api/v1/rustdesk/devices/{id}");
     let renamed = request(
         root,
         &base,
@@ -195,7 +195,7 @@ async fn real_process_login_device_changes_and_restart_preserve_state() {
         Some(csrf),
     );
     assert_eq!(authorization["authorization_code"], code);
-    let before = request(root, &base, "GET", "/api/v1/sunshine/devices", None, None);
+    let before = request(root, &base, "GET", "/api/v1/rustdesk/devices", None, None);
     assert_eq!(before.as_array().unwrap().len(), 1);
     assert_eq!(before[0]["id"], id);
     assert_eq!(before[0]["name"], "Renamed smoke device");
@@ -205,7 +205,7 @@ async fn real_process_login_device_changes_and_restart_preserve_state() {
     let persisted = request(root, &base, "GET", "/api/v1/auth/session", None, None);
     assert_eq!(persisted["authenticated"], true);
     assert_eq!(persisted["user_id"], session["user_id"]);
-    let after = request(root, &base, "GET", "/api/v1/sunshine/devices", None, None);
+    let after = request(root, &base, "GET", "/api/v1/rustdesk/devices", None, None);
     assert_eq!(after, before);
     let persisted_authorization = request(root, &base, "GET", &authorization_path, None, None);
     assert_eq!(persisted_authorization, authorization);

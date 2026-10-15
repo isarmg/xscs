@@ -35,8 +35,8 @@ pub async fn initialize_empty(pool: &SqlitePool) -> anyhow::Result<()> {
     let fingerprint = xcss::sqlite::schema_fingerprint(&mut *tx).await?;
     sqlx::query(xcss::schema_identity::PRODUCT_METADATA_INSERT_SQL)
         .bind(PRODUCT)
-        .bind("v1")
-        .bind(1i64)
+        .bind("v2")
+        .bind(2i64)
         .bind(fingerprint)
         .execute(&mut *tx)
         .await?;

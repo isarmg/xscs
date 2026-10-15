@@ -24,10 +24,10 @@ def api(request, path, method='GET', body=None, csrf=None):
 
 def exercise(request, session, sensitive, require):
     csrf = session['csrf_token']
-    ticket = api(request, '/api/v1/sunshine/devices', 'POST', {'name': 'Original lifecycle device'}, csrf)
+    ticket = api(request, '/api/v1/rustdesk/devices', 'POST', {'name': 'Original lifecycle device'}, csrf)
     device = ticket['device']
     require(device['name'] == 'Original lifecycle device', 'Device creation differs')
-    path = '/api/v1/sunshine/devices/' + device['id']
+    path = '/api/v1/rustdesk/devices/' + device['id']
     renamed = api(request, path, 'PATCH', {'name': 'Renamed lifecycle device'}, csrf)
     require(renamed['name'] == 'Renamed lifecycle device', 'Device rename differs')
     code = secrets.token_hex(18)
@@ -35,7 +35,7 @@ def exercise(request, session, sensitive, require):
     # Creation may return a private enrollment ticket. Never log any API body.
     authorization = api(request, path + '/authorization', 'PUT', {'authorization_code': code}, csrf)
     require(authorization['authorization_code'] == code, 'Device authorization differs')
-    devices = api(request, '/api/v1/sunshine/devices')
+    devices = api(request, '/api/v1/rustdesk/devices')
     require(len(devices) == 1 and devices[0]['id'] == device['id']
             and devices[0]['name'] == 'Renamed lifecycle device', 'Device list differs')
     return {'devices': devices, 'authorization': authorization, 'path': path}
@@ -45,7 +45,7 @@ def persisted(request, session, state, require):
     current = api(request, '/api/v1/auth/session')
     require(current['authenticated'] is True and current['user_id'] == session['user_id'],
             'Administrator session did not survive restart')
-    require(api(request, '/api/v1/sunshine/devices') == state['devices'], 'Devices did not survive restart')
+    require(api(request, '/api/v1/rustdesk/devices') == state['devices'], 'Devices did not survive restart')
     require(api(request, state['path'] + '/authorization') == state['authorization'],
             'Device authorization did not survive restart')
 

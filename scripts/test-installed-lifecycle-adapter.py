@@ -68,7 +68,7 @@ class AdapterContract(unittest.TestCase):
         adapter.persisted(request, session, state, require)
         self.assertEqual(sensitive, [authorization['authorization_code']])
         self.assertEqual(len(sensitive[0]), 36)
-        self.assertIn(('/api/v1/sunshine/devices/id-1', 'PATCH'), calls)
+        self.assertIn(('/api/v1/rustdesk/devices/id-1', 'PATCH'), calls)
         session['authenticated'] = False
         with self.assertRaisesRegex(RuntimeError, 'session did not survive'):
             adapter.persisted(request, session, state, require)

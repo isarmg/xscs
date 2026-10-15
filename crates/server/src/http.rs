@@ -96,35 +96,34 @@ pub fn router(
     runtime: xcss::server_runtime::RuntimeHandle,
 ) -> anyhow::Result<Router> {
     let protected = Router::new()
-        .route("/sunshine/config-fields", get(config_fields))
-        .route("/sunshine/devices", get(devices).post(create_device))
+        .route("/rustdesk/devices", get(devices).post(create_device))
         .route(
-            "/sunshine/devices/{id}",
+            "/rustdesk/devices/{id}",
             patch(rename_device).delete(delete_device),
         )
         .route(
-            "/sunshine/devices/{id}/authorization",
+            "/rustdesk/devices/{id}/authorization",
             get(device_authorization).put(update_device_authorization),
         )
         .route(
-            "/sunshine/devices/{id}/pairing",
+            "/rustdesk/devices/{id}/pairing",
             axum::routing::delete(cancel_pairing),
         )
-        .route("/sunshine/devices/{id}/revoke", post(revoke_device))
+        .route("/rustdesk/devices/{id}/revoke", post(revoke_device))
         .route(
-            "/sunshine/devices/{id}/tasks",
+            "/rustdesk/devices/{id}/tasks",
             get(device_tasks).post(submit_task),
         )
         .route(
-            "/sunshine/devices/{id}/tasks/summary",
+            "/rustdesk/devices/{id}/tasks/summary",
             get(device_task_summary),
         )
         .route(
-            "/sunshine/devices/{id}/tasks/calendar",
+            "/rustdesk/devices/{id}/tasks/calendar",
             get(device_task_calendar),
         )
-        .route("/sunshine/operations/{id}", get(operation_get))
-        .route("/sunshine/operations/{id}/resolve", post(operation_resolve))
+        .route("/rustdesk/operations/{id}", get(operation_get))
+        .route("/rustdesk/operations/{id}/resolve", post(operation_resolve))
         .layer(DefaultBodyLimit::max(MAX_MESSAGE_BYTES))
         .layer(middleware::from_fn_with_state(state.clone(), authenticate));
     let api = Router::new()
@@ -196,9 +195,6 @@ async fn authenticate(
 }
 async fn devices(State(state): State<WorkerState>) -> AppResult<Json<Vec<DeviceView>>> {
     Ok(Json(db::list_devices(&state.pool).await?))
-}
-async fn config_fields() -> Json<&'static [xscs_protocol::config::FieldDefinition]> {
-    Json(xscs_protocol::config::FIELD_DEFINITIONS)
 }
 async fn create_device(
     State(state): State<WorkerState>,
@@ -632,9 +628,9 @@ async fn client_connect(
             let _permit = permit;
             let mut pending = None;
             let session = uuid::Uuid::new_v4().to_string();
-            tracing::info!(event = "xscs.instance.connected", instance_id = %binding.device_id, instance_type = "sunshine", task_id = session.as_str(), request_id = request_id.as_str());
+            tracing::info!(event = "xscs.instance.connected", instance_id = %binding.device_id, instance_type = "rustdesk", task_id = session.as_str(), request_id = request_id.as_str());
             if let Err(error) = serve_client(&state, socket, &binding, &authenticated_credential_hash, &session, &mut pending).await {
-                tracing::warn!(event = "xscs.instance.connection_failed", instance_id = %binding.device_id, instance_type = "sunshine", task_id = session.as_str(), request_id = request_id.as_str(), error = %error, "client session ended with an error");
+                tracing::warn!(event = "xscs.instance.connection_failed", instance_id = %binding.device_id, instance_type = "rustdesk", task_id = session.as_str(), request_id = request_id.as_str(), error = %error, "client session ended with an error");
             }
             if let Some(operation) = pending {
                 let _ = state.operations.disconnected(&operation).await;
@@ -646,7 +642,7 @@ async fn client_connect(
             .bind(&session)
             .execute(&state.pool)
             .await;
-            tracing::info!(event = "xscs.instance.disconnected", instance_id = %binding.device_id, instance_type = "sunshine", task_id = session.as_str(), request_id = request_id.as_str());
+            tracing::info!(event = "xscs.instance.disconnected", instance_id = %binding.device_id, instance_type = "rustdesk", task_id = session.as_str(), request_id = request_id.as_str());
         }))
 }
 async fn receive(socket: &mut WebSocket) -> AppResult<ClientMessage> {
@@ -754,10 +750,11 @@ async fn serve_client(
                     Message::Text(text)=>{
                         let message:ClientMessage=serde_json::from_str(&text).map_err(|_|AppError::BadRequest("Client 消息无效".into()))?;
                         match message{
-                            ClientMessage::Heartbeat{sunshine_reachable,configuration}=>{
-                                if let Some(snapshot)=&configuration{crate::operations::validate_snapshot(snapshot)?;}
-                                sqlx::query("UPDATE devices SET sunshine_reachable=?,health_at_micros=?,snapshot_json=COALESCE(?,snapshot_json),configuration_state=CASE WHEN ? IS NULL OR configuration_state='awaiting_restart' THEN configuration_state ELSE 'pending_verification' END WHERE device_id=? AND session_id=? AND revoked_at_micros IS NULL")
-                                    .bind(sunshine_reachable).bind(db::now_micros()?).bind(configuration.as_ref().map(serde_json::to_string).transpose().map_err(|_|AppError::Unauthorized)?).bind(configuration.as_ref().map(|_| 1)).bind(&id).bind(session).execute(&state.pool).await?;
+                            ClientMessage::Heartbeat{diagnostics}=>{
+                                if let Some(snapshot)=&diagnostics{crate::operations::validate_diagnostics(snapshot)?;}
+                                sqlx::query("UPDATE devices SET health_at_micros=?,diagnostics_json=COALESCE(?,diagnostics_json) WHERE device_id=? AND session_id=? AND revoked_at_micros IS NULL")
+                                    .bind(db::now_micros()?).bind(diagnostics.as_ref().map(serde_json::to_string).transpose().map_err(|_|AppError::Unauthorized)?)
+                                    .bind(&id).bind(session).execute(&state.pool).await?;
                             }
                             ClientMessage::Progress{operation_id,fingerprint}=>{
                                 let operation=state.operations.receipt_operation(&operation_id,binding).await?;
@@ -1095,9 +1092,9 @@ mod tests {
     #[tokio::test]
     async fn private_route_requires_a_session_cookie() {
         for path in [
-            "/api/v1/sunshine/devices",
-            "/api/v1/sunshine/devices/unknown/tasks/calendar",
-            "/api/v1/sunshine/devices/unknown/tasks/summary",
+            "/api/v1/rustdesk/devices",
+            "/api/v1/rustdesk/devices/unknown/tasks/calendar",
+            "/api/v1/rustdesk/devices/unknown/tasks/summary",
         ] {
             let private = test_router()
                 .await
@@ -1112,7 +1109,7 @@ mod tests {
     fn device_channel_keeps_browser_requests_separate() {
         assert!(require_client_channel(&HeaderMap::new()).is_ok());
         for (name, value) in [
-            (header::ORIGIN, "https://sunshine.example.com"),
+            (header::ORIGIN, "https://rustdesk.example.com"),
             (header::COOKIE, "browser-session=fixture"),
         ] {
             let mut headers = HeaderMap::new();
@@ -1359,9 +1356,9 @@ mod tests {
             (Method::POST, "/xscc/v3/pairing"),
             (Method::GET, "/xscc/v3/identity"),
             (Method::GET, "/xscc/v3/connect"),
-            (Method::POST, "/api/v1/sunshine/operations/removed/retry"),
-            (Method::GET, "/api/services/sunshine/hosts"),
-            (Method::GET, "/api/sunshine/hosts"),
+            (Method::POST, "/api/v1/rustdesk/operations/removed/retry"),
+            (Method::GET, "/api/services/rustdesk/hosts"),
+            (Method::GET, "/api/rustdesk/hosts"),
         ] {
             let response = test_router()
                 .await
@@ -1457,7 +1454,7 @@ mod tests {
             .collect::<Vec<_>>()
             .join("; ");
         assert!(cookie.contains("admin-xscs-session="));
-        assert!(!cookie.contains("sunshine_csrf="));
+        assert!(!cookie.contains("rustdesk_csrf="));
         let login_body: Value =
             serde_json::from_slice(&login.into_body().collect().await.unwrap().to_bytes()).unwrap();
         let mut session_keys = login_body
@@ -1535,7 +1532,7 @@ mod tests {
         let calendar = application
             .clone()
             .oneshot(
-                Request::get("/api/v1/sunshine/devices/unknown/tasks/calendar")
+                Request::get("/api/v1/rustdesk/devices/unknown/tasks/calendar")
                     .header(header::COOKIE, &cookie)
                     .body(Body::empty())
                     .unwrap(),
@@ -1562,7 +1559,7 @@ mod tests {
             let response = application
                 .clone()
                 .oneshot(
-                    Request::get(format!("/api/v1/sunshine/devices/unknown/tasks{query}"))
+                    Request::get(format!("/api/v1/rustdesk/devices/unknown/tasks{query}"))
                         .header(header::COOKIE, &cookie)
                         .body(Body::empty())
                         .unwrap(),
@@ -1574,7 +1571,7 @@ mod tests {
         let summary = application
             .clone()
             .oneshot(
-                Request::get("/api/v1/sunshine/devices/unknown/tasks/summary")
+                Request::get("/api/v1/rustdesk/devices/unknown/tasks/summary")
                     .header(header::COOKIE, &cookie)
                     .body(Body::empty())
                     .unwrap(),
