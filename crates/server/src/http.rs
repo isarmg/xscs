@@ -1111,6 +1111,7 @@ mod tests {
 
     #[tokio::test]
     async fn browser_routes_serve_the_compiled_client_and_exact_font_bytes() {
+        crate::web_assets::verify().unwrap();
         let app = test_router().await;
         for path in [
             "index.html",
@@ -1118,6 +1119,11 @@ mod tests {
                 .iter()
                 .find(|asset| asset.path.ends_with(".woff2"))
                 .unwrap()
+                .path,
+            crate::web_assets::ASSETS
+                .iter()
+                .find(|asset| asset.path.ends_with(".wasm"))
+                .expect("Leptos browser WASM must be embedded")
                 .path,
         ] {
             let expected = crate::web_assets::ASSETS
@@ -1134,6 +1140,10 @@ mod tests {
                 .await
                 .unwrap();
             assert_eq!(response.status(), StatusCode::OK);
+            if path.ends_with(".wasm") {
+                assert_eq!(response.headers()[header::CONTENT_TYPE], "application/wasm");
+                assert!(expected.bytes.starts_with(b"\0asm"));
+            }
             assert_eq!(
                 response.headers()[header::CONTENT_TYPE],
                 expected.content_type

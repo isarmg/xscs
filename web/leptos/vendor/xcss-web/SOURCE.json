@@ -1,0 +1,18 @@
+{
+  "base_revision": "d0a41861d949f2b0626249b25a35f562fb59b592",
+  "files": {
+    "Cargo.toml": "692318266cc5e9f8e6dc98b9926c0306aacda3d65279fb7bfe222002955349f9",
+    "LICENSE": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+    "src/api.rs": "1182a3e2144e1eeae698e5202cbf9c6e1b8df08e7c8c61ab1434ba5227fdf04d",
+    "src/components.rs": "2432e0cc184f57b9e49f3dfbe94d66cfaa31bb11ffd74145f62d67a4dbf844a7",
+    "src/contracts.rs": "9d2c72391faf2878b18ef2d871e7155965f8d4de2e9b04a210c444e5ce54cd72",
+    "src/i18n.rs": "ab488e7b533933d608164f3f9a89934ec943b90b40dab0ce50c2ffb1b0c4aeec",
+    "src/lib.rs": "cdec0502144e2b72502883c5bcfd7a6ca8c461d16e198abb4b27a0204f77f976",
+    "src/theme.rs": "4289dd1d4afaa80bd504b174bc9e7b65e41bc920ad7aa8eb436284120307051c"
+  },
+  "format": 1,
+  "origin": "https://github.com/isarmg/xcss",
+  "package": "xcss-web",
+  "source_directory": "web/leptos",
+  "version": "1.0.0"
+}

@@ -1,7 +1,7 @@
+import { createLeptosViteConfig } from "./leptos-vite.mjs";
 import { isAbsolute, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { xcssFontLicenses } from "./font-licenses.mjs";
-import { createXcssReactViteConfig } from "@xcss/web/web-toolchain/vite";
 import { mergeConfig } from "vite";
 
 async function runtimeInventoryPlugins() {
@@ -17,7 +17,7 @@ async function runtimeInventoryPlugins() {
 
 export default async function configuration() {
   const inventory = await runtimeInventoryPlugins();
-  return mergeConfig(createXcssReactViteConfig(), {
+  return mergeConfig(createLeptosViteConfig(), {
   plugins: [...inventory, xcssFontLicenses()],
   server: {
     host: "127.0.0.1",

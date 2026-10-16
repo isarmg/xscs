@@ -7,24 +7,22 @@
     "node": ">=26.7.0 <27"
   },
   "scripts": {
-    "dev": "vite",
+    "dev": "python3 ../scripts/build-leptos.py build --debug && vite",
     "check:xcss": "node scripts/check-xcss-toolchain.mjs",
-    "build": "npm run check:xcss && tsc -b && vite build",
+    "build": "npm run check:xcss && python3 ../scripts/build-leptos.py build && vite build",
     "preview": "vite preview",
-    "test:browser": "npm run build && node tests/browser-acceptance.mjs"
+    "test:browser": "npm run build && node tests/browser-acceptance.mjs",
+    "build:leptos": "npm run build",
+    "check:leptos": "python3 ../scripts/build-leptos.py check",
+    "test:leptos": "python3 ../scripts/build-leptos.py test",
+    "test:browser:leptos": "npm run test:browser"
   },
   "dependencies": {
-    "@xcss/web": "https://github.com/isarmg/xcss/releases/download/v1.0.0/xcss-web-1.0.0.tgz",
-    "react": "19.3.0",
-    "react-dom": "19.3.0"
+    "@xcss/web": "https://github.com/isarmg/xcss/releases/download/v1.0.0/xcss-web-1.0.0.tgz"
   },
   "devDependencies": {
     "@axe-core/playwright": "4.13.0",
     "@playwright/test": "1.63.0",
-    "@types/react": "19.3.0",
-    "@types/react-dom": "19.3.0",
-    "@vitejs/plugin-react": "6.1.2",
-    "typescript": "7.0.2",
     "vite": "8.3.3"
   }
 }

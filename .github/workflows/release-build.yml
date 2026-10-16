@@ -29,10 +29,16 @@ jobs:
           check-latest: false
       - name: Install locked Web dependencies
         run: npm ci --prefix web
+      - name: Install pinned browser Rust tools
+        run: |
+          rustup toolchain install 1.99.0 --profile minimal --component rustfmt,clippy --target wasm32-unknown-unknown
+          cargo +1.99.0 install wasm-bindgen-cli --version 0.2.129 --locked
       - name: Install pinned package audit and SBOM tools
         run: |
           cargo install cargo-audit --version 0.22.2 --locked
           cargo install cargo-cyclonedx --version 0.5.9 --locked
+      - name: Audit locked browser Rust dependencies
+        run: cargo audit --file web/leptos/Cargo.lock --deny yanked
       - name: Build and verify the Server archive
         run: |
           mkdir -p "$RUNNER_TEMP/release-output"

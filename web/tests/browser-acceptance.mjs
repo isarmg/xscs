@@ -9,6 +9,8 @@ try {
   const browser=await engine.launch();
   try{
    const page=await browser.newPage({locale:'zh-CN'});const errors=[];page.on('pageerror',e=>errors.push(e.message));
+   await page.emulateMedia({colorScheme:'light'});
+   await page.addInitScript(()=>localStorage.removeItem('sarmg:theme'));
    const diagnostics={backend:'rustdesk',execution_mode:'embedded',integration_state:'awaiting_integration',rustdesk_version:null};
    const device={id:randomUUID(),name:'原生 RustDesk 主机',role:'controlled',addresses:[{host:'host.example.com',port:21118}],addresses_at_micros:Date.now()*1000,registered:true,pairing_pending:false,revoked:false,client_online:true,diagnostics,capabilities:{protocol:'xscs-management/2',client_version:'2.0.0-dev',os:'windows_x86_64',backend:'rustdesk',execution_mode:'embedded',diagnostics:true},last_seen_at_micros:Date.now()*1000};
    const controller={...device,id:randomUUID(),name:'RustDesk 主控端',role:'controller',addresses:[],addresses_at_micros:null};
@@ -41,7 +43,17 @@ try {
     }
     return route.fulfill({json:session});
    });
+   const wasm=page.waitForResponse(response=>new URL(response.url()).pathname.endsWith('.wasm')&&response.status()===200);
    await page.goto(server.resolvedUrls.local[0]);
+   await wasm;
+   await expect(page.locator('html')).toHaveAttribute('data-xcss-runtime','leptos',{timeout:30_000});
+   await expect(page.locator('html')).toHaveAttribute('data-theme','light');
+   await page.emulateMedia({colorScheme:'dark'});
+   await expect(page.locator('html')).toHaveAttribute('data-theme','dark');
+   await page.getByRole('button',{name:'切换到浅色模式',exact:true}).click();
+   await page.emulateMedia({colorScheme:'light'});
+   await page.emulateMedia({colorScheme:'dark'});
+   await expect(page.locator('html')).toHaveAttribute('data-theme','light');
    await expect(page.getByRole('heading',{name:'RustDesk 设备管理'})).toBeVisible();
    await page.getByRole('link',{name:device.name,exact:true}).click();
    await expect(page.getByRole('heading',{name:device.name,exact:true})).toBeVisible();
@@ -61,6 +73,15 @@ try {
    await page.getByRole('link',{name:device.name,exact:true}).click();
    await expect(page.getByRole('checkbox',{name:controller.name,exact:true})).not.toBeChecked();
    await page.getByRole('button',{name:'显示授权码',exact:true}).click();
+   await expect(page.getByText('c'.repeat(36),{exact:true})).toBeVisible();
+   // A fresh last-seen value must update the device without losing local edits
+   // or disclosing/hiding enrollment credentials as a side effect of polling.
+   await page.getByLabel('实例名称',{exact:true}).fill('尚未保存的名称');
+   device.last_seen_at_micros+=5_000_000;
+   const refreshed=page.waitForResponse(response=>new URL(response.url()).pathname==='/api/v1/rustdesk/devices');
+   await page.getByRole('button',{name:'刷新',exact:true}).click();
+   await refreshed;
+   await expect(page.getByLabel('实例名称',{exact:true})).toHaveValue('尚未保存的名称');
    await expect(page.getByText('c'.repeat(36),{exact:true})).toBeVisible();
    await page.getByRole('button',{name:'隐藏授权码',exact:true}).click();
    await page.getByRole('button',{name:'读取主机诊断',exact:true}).click();

@@ -13,3 +13,7 @@ web/dist/
 *.tsbuildinfo
 __pycache__/
 *.py[cod]
+
+# Generated Leptos/WASM browser artifacts
+/web/pkg/
+/web/leptos/target/

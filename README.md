@@ -12,3 +12,5 @@
 - [当前设备协议](docs/client-management-v2.md)
 - [开发与验证](docs/development.md)
 - [原生集成与验收条件](docs/rustdesk-integration.md)
+
+前端已迁移到 Leptos CSR，Axum 后端保持现有接口。构建与验收见 [Leptos 管理界面](docs/leptos-web.md)。
