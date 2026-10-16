@@ -5,8 +5,9 @@ import { useState } from "react";
 import { CURRENT_API_PREFIX, type DeviceInfo } from "./api";
 export function roleLabel(device:DeviceInfo):string { return device.role==="controller"?t("控制端","Controller"):t("被控端","Controlled host"); }
 export function integrationLabel(device:DeviceInfo):string {
+ if(device.role==="controller")return device.client_online?t("控制端已连接","Controller connected"):t("控制端离线","Controller offline");
  const state=device.diagnostics?.integration_state;
- return state==="ready"?t("已接入","Integrated"):state==="unavailable"?t("主机暂不可用","Host unavailable"):t("等待 RustDesk 稳定版本接入","Awaiting stable RustDesk integration");
+ return state==="ready"?t("已接入","Integrated"):state==="unavailable"?t("主机暂不可用","Host unavailable"):t("等待原生客户端就绪","Awaiting native client readiness");
 }
 export function DeviceInstances({devices,select,removed}:{devices:DeviceInfo[];select(id:string):void;removed(id:string):void}){
  const {client}=useAdminApplication();const[candidate,setCandidate]=useState<string|null>(null);const[pending,setPending]=useState(false);const[failure,setFailure]=useState<{requestId?:string}|null>(null);

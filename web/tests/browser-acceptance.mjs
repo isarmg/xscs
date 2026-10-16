@@ -44,7 +44,8 @@ try {
    await page.goto(server.resolvedUrls.local[0]);
    await expect(page.getByRole('heading',{name:'RustDesk 设备管理'})).toBeVisible();
    await page.getByRole('link',{name:device.name,exact:true}).click();
-   await expect(page.getByText('等待 RustDesk 稳定版本接入',{exact:true})).toBeVisible();
+   await expect(page.getByRole('heading',{name:device.name,exact:true})).toBeVisible();
+   await expect(page.getByText('等待原生客户端就绪',{exact:true})).toBeVisible();
    await expect(page.getByText('host.example.com:21118',{exact:true})).toBeVisible();
    await page.getByRole('checkbox',{name:controller.name,exact:true}).check();
    await page.getByRole('button',{name:'保存控制权限',exact:true}).click();
@@ -52,6 +53,7 @@ try {
    await page.getByRole('link',{name:'实例',exact:true}).click();
    await page.getByRole('link',{name:controller.name,exact:true}).click();
    await expect(page.getByRole('checkbox',{name:device.name,exact:true})).toBeChecked();
+   await expect(page.getByText('控制端已连接',{exact:true})).toBeVisible();
    await page.getByRole('checkbox',{name:device.name,exact:true}).uncheck();
    await page.getByRole('button',{name:'保存控制权限',exact:true}).click();
    await expect(page.getByRole('status').filter({hasText:'控制权限已保存'})).toBeVisible();

@@ -8,4 +8,6 @@ Rust 检查为 `cargo fmt --all -- --check`、`cargo test --locked --all-targets
 
 变更 DDL 后，从 Cargo.toml 固定的 xcss 源码执行 tools/xcss_schema_compose.py，指定 server-control-plane、admin-persistent、durable-operations 和产品 schema/product.sql。schema identity 使用 xcss 的规范 sqlite_schema 指纹；同时更新 revision、release.json、安装校验材料和夹具。
 
-本分支只准备集成，真实 RustDesk、平台存储、主机生命周期和正式安装升级留到稳定版本验收。
+配套 xscc 分支已接入实例绑定、平台私有存储、管理生命周期、授权列表与原生会话证明。客户端五平台和被控端三平台的范围见控制授权合同；物理设备的实际串流、前后台切换与恢复仍需要单独验收。
+
+本分支版本保持 `2.0.0-dev`，当前固定的 XSSI 安装器只接受无预发布后缀的 `major.minor.patch`。因此安装包生命周期 CI 会在 release identity 校验拒绝这个开发版号；这不是源码、浏览器或管理协议测试通过的替代证明。正式安装包验收需要在稳定发布阶段采用匹配的版本与发行合同，不放宽安装器校验。
