@@ -1,6 +1,6 @@
 # Rust 原生 Web 构建工具
 
-这个独立 Cargo workspace 为现有 Leptos CSR 项目生成 Axum 可嵌入的静态资源。生产构建只执行锁定的 Cargo 和 wasm-bindgen；不执行 Node、Vite、Python，不下载 CDN 运行时。现有 React 包与 Playwright 测试仍可独立保留。
+这个独立 Cargo workspace 为现有 xcss-web CSR 项目生成 Axum 可嵌入的静态资源。生产构建只执行锁定的 Cargo 和 wasm-bindgen；不执行 Node、Vite、Python，不下载 CDN 运行时。现有 React 包与 Playwright 测试仍可独立保留。
 
 ```sh
 cargo run --locked --manifest-path tools/web-build/Cargo.toml -- build --product-root . --offline
@@ -11,7 +11,7 @@ cargo run --locked --manifest-path tools/web-build/Cargo.toml -- preview --produ
 cargo run --locked --manifest-path tools/web-build/Cargo.toml -- server --product-root . --mode development --offline
 ```
 
-首次准备需要 Rust `1.99.0`、`wasm32-unknown-unknown` target、wasm-bindgen CLI `0.2.129`，以及两个独立 Cargo.lock 的缓存依赖。`--offline` 控制浏览器 Cargo，工具自身 Cargo 也应加 `--offline`。`WASM_BINDGEN` 可指定已验证版本的 CLI。工具与浏览器分开使用 target：`CARGO_TARGET_DIR` 控制启动工具和原生服务器，`XCSS_WASM_TARGET_DIR` 控制浏览器编译，默认 `<product>/target/leptos`。浏览器默认两个编译 job；显式 `CARGO_BUILD_JOBS` 可覆盖。
+首次准备需要 Rust `1.99.0`、`wasm32-unknown-unknown` target、wasm-bindgen CLI `0.2.129`，以及两个独立 Cargo.lock 的缓存依赖。`--offline` 控制浏览器 Cargo，工具自身 Cargo 也应加 `--offline`。`WASM_BINDGEN` 可指定已验证版本的 CLI。工具与浏览器分开使用 target：`CARGO_TARGET_DIR` 控制启动工具和原生服务器，`XCSS_WASM_TARGET_DIR` 控制浏览器编译，默认 `<product>/target/xcss-web`。浏览器默认两个编译 job；显式 `CARGO_BUILD_JOBS` 可覆盖。
 
 ## 配置
 
@@ -38,7 +38,7 @@ licenses = [
 # "hls.js" = "vendor/hls/hls.mjs"
 ```
 
-未写 `entry` 时优先 `src/main-leptos.js`，其次 `src/main.js`。`base` 只接受同源 `/` 或 `/prefix/`。`--dist` 或 `XCSS_WEB_DIST` 覆盖输出；默认按产品根目录解释相对路径。输出不得覆盖源目录或源目录祖先，现有非空输出必须含 Leptos 生成清单，否则拒绝替换。
+未写 `entry` 时优先 `src/main-xcss-web.js`，其次 `src/main.js`。`base` 只接受同源 `/` 或 `/prefix/`。`--dist` 或 `XCSS_WEB_DIST` 覆盖输出；默认按产品根目录解释相对路径。输出不得覆盖源目录或源目录祖先，现有非空输出必须含 xcss-web 生成清单，否则拒绝替换。
 
 `xczs` 保留服务器生成 HTML 和 `__ASSETS_PREFIX__`、`__INDEX_DATA__`、`__WASM_PRELOAD__` 模板。工具不把它转换成 SPA：
 
@@ -51,9 +51,9 @@ runtime_root = "product"
 css_output = "dist/platform.css"
 
 [web.entries]
-"index.js" = "leptos-index.js"
-"login.js" = "leptos-login.js"
-"dist/platform.js" = "leptos-platform.js"
+"index.js" = "xcss-web-index.js"
+"login.js" = "xcss-web-login.js"
+"dist/platform.js" = "xcss-web-platform.js"
 
 [web.copies]
 "index.css" = "index.css"
@@ -69,14 +69,14 @@ css_output = "dist/platform.css"
 ## 资源与追溯合同
 
 - Rust 浏览器编译保持 `--locked`；正式构建默认 release，`--debug` 使用 dev profile。精确校验 wasm-bindgen CLI 版本。
-- 编译前检查 `cargo metadata --locked --filter-platform wasm32-unknown-unknown` 的实际依赖图：Leptos 核心和宏必须各有唯一版本，且来自 xcss-web 集成目录。核心仅允许 `csr`；主机过程宏额外允许其 `__internal_erase_components` 内部标志。拒绝 full、SSR、hydrate/hydration、server_fn 等重新进入实际框架图，同时不误禁其他依赖的普通 default feature。`graph --product-root .` 可单独检查并输出 JSON；构建清单记录通过检查的角色/路径/feature。
+- 编译前检查 `cargo metadata --locked --filter-platform wasm32-unknown-unknown` 的实际依赖图：xcss-web 核心和宏必须各有唯一版本，且来自 xcss-web 集成目录。公开 `xcss-web` facade 必须唯一且指向项目内集成源码；内部 `xcss-web-core` 和 `xcss-web-macro` 的目录与 Cargo 角色分别校验。核心仅允许 `csr`；主机过程宏额外允许其 `__internal_erase_components` 内部标志。拒绝 full、SSR、hydrate/hydration、server_fn 等重新进入实际框架图，同时不误禁其他依赖的普通 default feature。`graph --product-root .` 可单独检查并输出 JSON；构建清单记录通过检查的角色/路径/feature。
 - Oxc 解析 JavaScript、检查语法/作用域错误、按真实 AST 识别 import/export、动态 import 与 `new URL("literal", import.meta.url)`；然后压缩与输出。字符串、注释、正则中的伪 import 不会当成依赖。
 - 接受自包含 `.js`/`.mjs` ESM、静态 CSS import、`?url` 默认导入/默认再导出、字面量动态 import。别名必须精确配置；拒绝未 vendor 的裸导入、CommonJS `require`、计算型动态导入、import attributes、TS/JSX 和 ESM 环。这个工具不替代通用 npm 转译器；有这些输入时使用上游提供并审查过的独立 ESM 发行文件。
 - Lightning CSS 解析、展开普通 `@import`、按真实 URL 值重写字体/图片，再压缩输出。不静默丢弃条件 `@import`；需先明确整理输入。CSS 导入顺序保持入口模块遍历顺序。
 - `web/public` 按原目录复制到输出根目录。CSS 的绝对 URL 优先匹配 public 文件并保留固定 URL（例如 `/legacy/bannerWave1.png`）；ESM 绝对导入优先匹配 Web 源文件，其次在 public 内查找。引用 public 资源不会额外生成一份哈希文件；固定资源仍计入预算、源码漂移检查和 receipt。根 URL 拒绝 `..`、协议相对 URL、符号链接及越界路径，public 不能覆盖生成入口或追溯清单。
 - 生成独立 WASM、确定性 gzip（mtime 0）、对应 WASM preload、字体 preload、独立 stylesheet，并保留原 inline font boot。不开启 source map，不引入远端 script/style。
 - 默认单文件预算：普通资源 512 KiB、WASM/其 gzip 4 MiB、字体 16 MiB；bundle 最终输出 16 MiB。配置可以收紧这些上限，不能放宽。没有 public 清单时，public 全部按这些原严格上限计入 bundle。复制资源、清单、许可、HTML 同样计入预算。
-- `web/pkg/leptos-build.json` 与 `dist/assets/leptos-build.json` 保留 `format/rust/wasm_bindgen/package/profile/files/browser_inputs/shared_inputs/builder_sha256/cargo_packages` 字段，同时增加资源、其他 path/patch 依赖、工具源码清单。工具的运行时源码还会对比编译到执行文件中的源码字节，拒绝使用过期工具伪造构建来源。
+- `web/pkg/xcss-web-build.json` 与 `dist/assets/xcss-web-build.json` 保留 `format/rust/wasm_bindgen/package/profile/files/browser_inputs/shared_inputs/builder_sha256/cargo_packages` 字段，同时增加资源、其他 path/patch 依赖、工具源码清单。工具的运行时源码还会对比编译到执行文件中的源码字节，拒绝使用过期工具伪造构建来源。
 - 所有 `web/vendor/<package>/SOURCE.json` 精确校验目录文件名和 SHA-256；增加未登记文件、改动实现或许可证都会失败。构建前后再次比较整套源代码/lock/vendor/资源清单，即使构建过程中同时更新 SOURCE.json 也不能绕过漂移检测。
 - 验证通过后再替换生成的 pkg/dist。普通失败会恢复上一对输出；不宣称跨两个目录的重命名具备断电原子性。构建不可与另一个指向相同输出的构建并发执行。
 - `assets/vendor-sources.json` 保存完整的 browser vendor 来源。设置 `XSSI_BUILD_TOOLS_DIR` 与 `XSSI_FRONTEND_METADATA_FILE` 时生成既有 runtime receipt，字段为 `format_version=1`、`distribution`、`modules`、`outputs`，模块 SHA 和输出 SHA 均绑定本次实际字节。两个环境变量需同时提供、绝对路径，receipt 必须创建为新文件。发布器必须理解 vendor 来源；旧版只识别 `node_modules` 的发布器需更新后使用，不能把 vendor 第三方组件误认成本地源码。

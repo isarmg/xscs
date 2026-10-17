@@ -105,7 +105,7 @@ jobs:
             ~/.cargo/registry/index
             ~/.cargo/git/db
             target
-          key: xscs-source-rust-v1-${{ runner.os }}-${{ runner.arch }}-rust-1.99.0-x86_64-unknown-linux-gnu-${{ steps.source_environment.outputs.fingerprint }}-${{ hashFiles('Cargo.lock', 'tools/web-build/Cargo.lock', 'tools/web-build/src/**', 'web/rust-web.toml', 'web/vendor/**', 'web/leptos/vendor/**', 'web/leptos/Cargo.lock', 'scripts/build-leptos.py', '**/Cargo.toml', '**/build.rs', '.cargo/**', 'rust-toolchain.toml', 'config/xssi.lock', 'web/package-lock.json', 'xcss-web-build.json', '.github/workflows/ci.yml') }}
+          key: xscs-source-rust-v1-${{ runner.os }}-${{ runner.arch }}-rust-1.99.0-x86_64-unknown-linux-gnu-${{ steps.source_environment.outputs.fingerprint }}-${{ hashFiles('Cargo.lock', 'tools/web-build/Cargo.lock', 'tools/web-build/src/**', 'web/rust-web.toml', 'web/vendor/**', 'web/xcss-web/vendor/**', 'web/xcss-web/Cargo.lock', 'scripts/build-xcss-web.py', '**/Cargo.toml', '**/build.rs', '.cargo/**', 'rust-toolchain.toml', 'config/xssi.lock', 'web/package-lock.json', 'xcss-web-build.json', '.github/workflows/ci.yml') }}
       - name: Recompile first-party checks from the current checkout
         run: |
           cargo clean --package xscs --package xscs-protocol
@@ -157,10 +157,10 @@ jobs:
         run: |
           cargo +1.99.0 fmt --manifest-path tools/web-build/Cargo.toml -- --check
           cargo +1.99.0 clippy --manifest-path tools/web-build/Cargo.toml --locked --all-targets -- -D warnings
-          cargo +1.99.0 fmt --manifest-path web/leptos/Cargo.toml -- --check
-          cargo +1.99.0 clippy --manifest-path web/leptos/Cargo.toml --target wasm32-unknown-unknown --all-targets --locked -- -D warnings
-          cargo +1.99.0 test --manifest-path web/leptos/Cargo.toml --locked
-          python3 -I -B scripts/test-leptos-build.py
+          cargo +1.99.0 fmt --manifest-path web/xcss-web/Cargo.toml -- --check
+          cargo +1.99.0 clippy --manifest-path web/xcss-web/Cargo.toml --target wasm32-unknown-unknown --all-targets --locked -- -D warnings
+          cargo +1.99.0 test --manifest-path web/xcss-web/Cargo.toml --locked
+          python3 -I -B scripts/test-xcss-web-build.py
       - name: Install browser acceptance engines
         working-directory: web
         run: npx playwright install --with-deps chromium firefox
@@ -234,7 +234,7 @@ jobs:
             ~/.cargo/git/db
             target
           # No fallback keys. Only a successful main push saves this cache.
-          key: xscs-installed-release-v1-${{ runner.os }}-${{ runner.arch }}-rust-1.99.0-${{ env.SERVER_TARGET }}-${{ steps.release_environment.outputs.fingerprint }}-${{ hashFiles('Cargo.lock', 'tools/web-build/Cargo.lock', 'tools/web-build/src/**', 'web/rust-web.toml', 'web/vendor/**', 'web/leptos/vendor/**', 'web/leptos/Cargo.lock', 'scripts/build-leptos.py', '**/Cargo.toml', '**/build.rs', '.cargo/**', 'rust-toolchain.toml', 'config/xssi.lock', 'web/package-lock.json', 'xcss-web-build.json', '.github/workflows/ci.yml') }}
+          key: xscs-installed-release-v1-${{ runner.os }}-${{ runner.arch }}-rust-1.99.0-${{ env.SERVER_TARGET }}-${{ steps.release_environment.outputs.fingerprint }}-${{ hashFiles('Cargo.lock', 'tools/web-build/Cargo.lock', 'tools/web-build/src/**', 'web/rust-web.toml', 'web/vendor/**', 'web/xcss-web/vendor/**', 'web/xcss-web/Cargo.lock', 'scripts/build-xcss-web.py', '**/Cargo.toml', '**/build.rs', '.cargo/**', 'rust-toolchain.toml', 'config/xssi.lock', 'web/package-lock.json', 'xcss-web-build.json', '.github/workflows/ci.yml') }}
       - name: Discard cached first-party candidate products
         run: |
           cargo clean --package xscs --release --target "$SERVER_TARGET"
@@ -306,7 +306,7 @@ jobs:
             target
           key: ${{ steps.release_cache.outputs.cache-primary-key }}
       - name: Audit locked browser Rust dependencies
-        run: cargo audit --file web/leptos/Cargo.lock --deny yanked
+        run: cargo audit --file web/xcss-web/Cargo.lock --deny yanked
       - name: Package the exact release binary with real helper and audits
         id: package_candidate
         run: |

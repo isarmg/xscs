@@ -1,6 +1,6 @@
 //! The browser client and its immutable inventory are compiled into this binary.
-#[path = "leptos_assets.rs"]
-mod leptos_assets;
+#[path = "xcss_web_assets.rs"]
+mod xcss_web_assets;
 
 include!(concat!(env!("OUT_DIR"), "/xcss-web-assets.rs"));
 
@@ -12,7 +12,7 @@ pub fn response(
 ) -> axum::response::Response {
     match directory {
         Some(directory) => directory.response(path, method, headers),
-        None => leptos_assets::response(path, method, headers, |path, method, headers| {
+        None => xcss_web_assets::response(path, method, headers, |path, method, headers| {
             xcss::web_assets::response(ASSETS, path, method, headers)
         }),
     }
@@ -25,7 +25,7 @@ pub fn verify() -> anyhow::Result<()> {
 }
 
 #[cfg(test)]
-mod leptos_response_tests {
+mod xcss_web_response_tests {
     use super::*;
     use axum::http::{HeaderMap, HeaderValue, Method, StatusCode, header};
 

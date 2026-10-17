@@ -36,7 +36,7 @@ jobs:
           cargo install cargo-audit --version 0.22.2 --locked
           cargo install cargo-cyclonedx --version 0.5.9 --locked
       - name: Audit locked browser Rust dependencies
-        run: cargo audit --file web/leptos/Cargo.lock --deny yanked
+        run: cargo audit --file web/xcss-web/Cargo.lock --deny yanked
       - name: Build and verify the Server archive
         run: |
           mkdir -p "$RUNNER_TEMP/release-output"

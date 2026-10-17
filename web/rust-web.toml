@@ -1,6 +1,6 @@
 [web]
 kind = "spa"
-entry = "src/main-leptos.js"
+entry = "src/main-xcss-web.js"
 dist = "web/dist"
 base = "/"
 
@@ -12,6 +12,6 @@ base = "/"
 
 # Preserve original notices in standalone dist as well as release receipts.
 [web.copies]
-"assets/LICENSE-leptos-MIT.txt" = "leptos/vendor/xcss-web/vendor/leptos-csr/LICENSE"
-"assets/LICENSE-leptos-macro-MIT.txt" = "leptos/vendor/xcss-web/vendor/leptos-macro-csr/LICENSE"
+"assets/LICENSE-xcss-web-core-MIT.txt" = "xcss-web/vendor/xcss-web/vendor/xcss-web-core/LICENSE"
+"assets/LICENSE-xcss-web-macro-MIT.txt" = "xcss-web/vendor/xcss-web/vendor/xcss-web-macro/LICENSE"
 "assets/LICENSE-xcss-Apache-2.0.txt" = "vendor/xcss/LICENSE"

@@ -1,6 +1,6 @@
 # Rust 原生 Web 构建与测试
 
-生产前端编译、资源整理、gzip、清单、预算/许可证检查和后端集成使用本仓库 `tools/web-build`，不需要 `npm ci`、Node 或 Vite。后端仍为 Axum。前端只使用裁剪的 Leptos CSR；框架源码与公共组件由 xcss 统一维护与同步。
+生产前端编译、资源整理、gzip、清单、预算/许可证检查和后端集成使用本仓库 `tools/web-build`，不需要 `npm ci`、Node 或 Vite。后端仍为 Axum。前端只使用裁剪的 xcss-web CSR；框架源码与公共组件由 xcss 统一维护与同步。
 
 在产品根目录执行：
 
@@ -20,6 +20,6 @@ CI 与正式打包脚本的生产 build/server 直接调用 Cargo，保留原 so
 
 ## 函数式视图
 
-当前 `web/leptos/src` 的界面使用普通 Rust builder、元组、迭代器和闭包组合，已移除 authored `view!`。`#[component]` 仅处理 Leptos 组件参数与生命周期；DOM 构造直接调用原有 Leptos API，没有添加新的模板语法。Rustfmt、WASM 类型检查、Clippy 与原浏览器断言继续适用。
+当前 `web/xcss-web/src` 的界面使用普通 Rust builder、元组、迭代器和闭包组合，已移除 authored `view!`。`#[component]` 仅处理 xcss-web 组件参数与生命周期；DOM 构造直接调用原有 xcss-web API，没有添加新的模板语法。Rustfmt、WASM 类型检查、Clippy 与原浏览器断言继续适用。
 
 一次性迁移由 xcss 的 `tools/rustify-views` 使用锁定 CSR 宏 codegen 完成，生产编译不调用此转换器。组件适配块保留了 codegen 对 let-and-return、unit props 的局部 lint 边界；业务逻辑没有全文件 lint 豁免。后续维护可直接编辑普通 Rust 视图，再执行相同构建与浏览器验收。

@@ -12,10 +12,10 @@
     "build": "cargo +1.99.0 run --quiet --locked --manifest-path ../tools/web-build/Cargo.toml -- build --product-root ..",
     "preview": "cargo +1.99.0 run --quiet --locked --manifest-path ../tools/web-build/Cargo.toml -- preview --product-root .. --bind 127.0.0.1:4173",
     "test:browser": "npm run build && node tests/browser-acceptance.mjs",
-    "build:leptos": "cargo +1.99.0 run --quiet --locked --manifest-path ../tools/web-build/Cargo.toml -- build --product-root ..",
-    "check:leptos": "cargo +1.99.0 run --quiet --locked --manifest-path ../tools/web-build/Cargo.toml -- check --product-root ..",
-    "test:leptos": "cargo +1.99.0 run --quiet --locked --manifest-path ../tools/web-build/Cargo.toml -- test --product-root ..",
-    "test:browser:leptos": "npm run test:browser"
+    "build:xcss-web": "cargo +1.99.0 run --quiet --locked --manifest-path ../tools/web-build/Cargo.toml -- build --product-root ..",
+    "check:xcss-web": "cargo +1.99.0 run --quiet --locked --manifest-path ../tools/web-build/Cargo.toml -- check --product-root ..",
+    "test:xcss-web": "cargo +1.99.0 run --quiet --locked --manifest-path ../tools/web-build/Cargo.toml -- test --product-root ..",
+    "test:browser:xcss-web": "npm run test:browser"
   },
   "devDependencies": {
     "@axe-core/playwright": "4.13.0",

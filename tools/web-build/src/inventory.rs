@@ -171,7 +171,7 @@ fn cargo_sources(
     let base = base.canonicalize()?;
     ensure!(
         base.starts_with(frontend),
-        "Local Rust dependency escapes web/leptos: {}",
+        "Local Rust dependency escapes web/xcss-web: {}",
         base.display()
     );
     if seen.contains(&base) {
@@ -239,7 +239,7 @@ fn cargo_sources(
 
 pub fn snapshot(root: &Path) -> Result<Value> {
     let web = root.join("web");
-    let frontend = web.join("leptos");
+    let frontend = web.join("xcss-web");
     let mut rust = BTreeMap::new();
     cargo_sources(&frontend, &frontend, &mut Vec::new(), &mut rust)?;
     validate_vendors(&web.join("vendor"))?;
@@ -319,7 +319,7 @@ pub fn signature(root: &Path) -> Result<String> {
             paths.push(path);
         }
     }
-    for name in ["src", "vendor", "public", "licenses", "leptos"] {
+    for name in ["src", "vendor", "public", "licenses", "xcss-web"] {
         paths.extend(walk(&web.join(name))?);
     }
     paths.extend(walk(&root.join("tools/web-build/src"))?);
@@ -448,7 +448,7 @@ mod tests {
     #[test]
     fn refreshing_a_vendor_manifest_does_not_hide_build_time_source_drift() -> Result<()> {
         let dir = tempfile::tempdir()?;
-        let frontend = dir.path().join("web/leptos");
+        let frontend = dir.path().join("web/xcss-web");
         fs::create_dir_all(frontend.join("src"))?;
         fs::write(
             frontend.join("Cargo.toml"),
@@ -484,7 +484,7 @@ mod tests {
     fn refreshing_public_media_inventory_does_not_hide_build_time_source_drift() -> Result<()> {
         let dir = tempfile::tempdir()?;
         let web = dir.path().join("web");
-        let frontend = web.join("leptos");
+        let frontend = web.join("xcss-web");
         fs::create_dir_all(frontend.join("src"))?;
         fs::write(
             frontend.join("Cargo.toml"),

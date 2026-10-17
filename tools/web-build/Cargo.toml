@@ -4,7 +4,7 @@ version = "1.0.0"
 edition = "2024"
 rust-version = "1.99"
 license = "Apache-2.0"
-description = "Auditable Rust-only asset builder and Axum development server for Leptos CSR"
+description = "Auditable Rust-only asset builder and Axum development server for xcss-web CSR"
 
 [workspace]
 

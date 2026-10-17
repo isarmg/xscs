@@ -75,7 +75,7 @@ pub fn distribution(options: &Options) -> Result<PathBuf> {
             && output != options.root.join("web")
             && !output.starts_with(options.root.join("web/src"))
             && !output.starts_with(options.root.join("web/vendor"))
-            && !output.starts_with(options.root.join("web/leptos"))
+            && !output.starts_with(options.root.join("web/xcss-web"))
             && output != options.root.join("web/pkg"),
         "Distribution must be a generated directory separate from authored source and source ancestors"
     );
@@ -89,7 +89,7 @@ pub fn cargo_action(options: &Options, action: &str) -> Result<()> {
         .arg(format!("+{RUST}"))
         .arg(action)
         .args(["--manifest-path"])
-        .arg(options.root.join("web/leptos/Cargo.toml"))
+        .arg(options.root.join("web/xcss-web/Cargo.toml"))
         .arg("--locked")
         .current_dir(&options.root);
     if action != "test" {
@@ -124,7 +124,7 @@ pub fn cargo_action(options: &Options, action: &str) -> Result<()> {
 fn target_directory(options: &Options) -> Result<PathBuf> {
     let path = env::var_os("XCSS_WASM_TARGET_DIR")
         .map(PathBuf::from)
-        .unwrap_or_else(|| options.root.join("target/leptos"));
+        .unwrap_or_else(|| options.root.join("target/xcss-web"));
     Ok(if path.is_absolute() {
         path
     } else {
@@ -144,9 +144,9 @@ fn validate_generated(directory: &Path) -> Result<()> {
     inventory::files(directory)?;
     ensure!(
         fs::read_dir(directory)?.next().is_none()
-            || directory.join("leptos-build.json").is_file()
-            || directory.join("assets/leptos-build.json").is_file(),
-        "Refusing to replace a nonempty directory without Leptos generated-output provenance: {}",
+            || directory.join("xcss-web-build.json").is_file()
+            || directory.join("assets/xcss-web-build.json").is_file(),
+        "Refusing to replace a nonempty directory without xcss-web generated-output provenance: {}",
         directory.display()
     );
     Ok(())
@@ -199,7 +199,7 @@ fn replace_pair(
 pub fn build(options: &Options) -> Result<Value> {
     inventory::physical(&options.root)?;
     let web = options.root.join("web");
-    let manifest = web.join("leptos/Cargo.toml");
+    let manifest = web.join("xcss-web/Cargo.toml");
     let declaration: toml::Value =
         toml::from_str(&String::from_utf8(inventory::read(&manifest)?)?)?;
     let package = declaration["package"]["name"]
@@ -280,7 +280,7 @@ pub fn build(options: &Options) -> Result<Value> {
     object.extend(json!({"format":1,"rust":RUST,"wasm_bindgen":BINDGEN,"package":package,"profile":profile,"files":generated,"asset_builder":"xcss-web-build/1.0.0","csr_graph":csr_graph}).as_object().expect("Constant object").clone());
     let mut provenance = serde_json::to_vec(&metadata)?;
     provenance.push(b'\n');
-    fs::write(stage_pkg.join("leptos-build.json"), &provenance)?;
+    fs::write(stage_pkg.join("xcss-web-build.json"), &provenance)?;
     let (outputs, mut runtime) =
         assets::Linker::new(&web, &stage_pkg, config).finish(&provenance)?;
     let final_files = assets::write_outputs(&stage_dist, &outputs)?;
@@ -342,8 +342,8 @@ mod tests {
         }
         fs::write(dir.path().join("pkg/old"), "old package")?;
         fs::write(dir.path().join("dist/old"), "old dist")?;
-        fs::write(dir.path().join("pkg/leptos-build.json"), "{}")?;
-        fs::write(dir.path().join("dist/leptos-build.json"), "{}")?;
+        fs::write(dir.path().join("pkg/xcss-web-build.json"), "{}")?;
+        fs::write(dir.path().join("dist/xcss-web-build.json"), "{}")?;
         let result = replace_pair(
             &dir.path().join("pkg"),
             &dir.path().join("stage-pkg"),

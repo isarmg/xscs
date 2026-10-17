@@ -1,3 +1,3 @@
 # Preserve hash-verified third-party source bytes, including upstream whitespace.
-web/leptos/vendor/xcss-web/vendor/leptos-csr/** whitespace=-trailing-space,-blank-at-eof
-web/leptos/vendor/xcss-web/vendor/leptos-macro-csr/** whitespace=-trailing-space,-blank-at-eof
+web/xcss-web/vendor/xcss-web/vendor/xcss-web-core/** whitespace=-trailing-space,-blank-at-eof
+web/xcss-web/vendor/xcss-web/vendor/xcss-web-macro/** whitespace=-trailing-space,-blank-at-eof

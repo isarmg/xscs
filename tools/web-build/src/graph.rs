@@ -12,7 +12,7 @@ use std::{
 };
 
 pub fn resolve(options: &Options) -> Result<Value> {
-    let frontend = options.root.join("web/leptos");
+    let frontend = options.root.join("web/xcss-web");
     let mut command = Command::new("cargo");
     command
         .arg(format!("+{}", crate::RUST))
@@ -84,10 +84,29 @@ pub fn validate(metadata: &Value, frontend: &Path) -> Result<Value> {
     } else {
         frontend.join("vendor/xcss-web")
     };
+    let facade = reachable
+        .iter()
+        .filter_map(|id| by_id.get(id).filter(|p| p["name"] == "xcss-web").copied())
+        .collect::<Vec<_>>();
+    ensure!(
+        facade.len() == 1,
+        "CSR requires exactly one integrated xcss-web facade"
+    );
+    ensure!(
+        facade[0]["source"].is_null()
+            && Path::new(
+                facade[0]["manifest_path"]
+                    .as_str()
+                    .context("Facade manifest")?
+            )
+            .canonicalize()?
+                == integrated.join("Cargo.toml").canonicalize()?,
+        "xcss-web must resolve to the integrated facade source"
+    );
     let mut selected = Vec::new();
     for (name, directory) in [
-        ("leptos", "leptos-csr"),
-        ("leptos_macro", "leptos-macro-csr"),
+        ("xcss-web-core", "xcss-web-core"),
+        ("xcss-web-macro", "xcss-web-macro"),
     ] {
         let candidates = reachable
             .iter()
@@ -120,7 +139,7 @@ pub fn validate(metadata: &Value, frontend: &Path) -> Result<Value> {
             .iter()
             .map(|v| v.as_str().context("Feature name"))
             .collect::<Result<BTreeSet<_>>>()?;
-        let allowed = if name == "leptos_macro" {
+        let allowed = if name == "xcss-web-macro" {
             BTreeSet::from(["csr", "__internal_erase_components"])
         } else {
             BTreeSet::from(["csr"])
@@ -139,7 +158,7 @@ pub fn validate(metadata: &Value, frontend: &Path) -> Result<Value> {
                     .is_some_and(|kinds| kinds.iter().any(|kind| kind == "proc-macro"))
             });
         ensure!(
-            host_macro == (name == "leptos_macro"),
+            host_macro == (name == "xcss-web-macro"),
             "Integrated runtime/proc-macro target roles changed"
         );
         selected.push(json!({"name":name,"version":package["version"],"path":inventory::relative(expected.strip_prefix(frontend)?)?,"features":features,"role":if host_macro {"host-proc-macro"} else {"browser"}}));
@@ -150,7 +169,9 @@ pub fn validate(metadata: &Value, frontend: &Path) -> Result<Value> {
         ensure!(
             !matches!(
                 name,
-                "server_fn"
+                "leptos"
+                    | "leptos_macro"
+                    | "server_fn"
                     | "server_fn_macro"
                     | "leptos_server"
                     | "hydration_context"
@@ -182,7 +203,7 @@ mod tests {
     fn fixture() -> Result<(tempfile::TempDir, Value)> {
         let temp = tempfile::tempdir()?;
         let frontend = temp.path();
-        for name in ["leptos-csr", "leptos-macro-csr"] {
+        for name in ["xcss-web-core", "xcss-web-macro"] {
             std::fs::create_dir_all(frontend.join("vendor/xcss-web/vendor").join(name))?;
             std::fs::write(
                 frontend
@@ -192,17 +213,21 @@ mod tests {
                 "test",
             )?;
         }
-        let core = frontend.join("vendor/xcss-web/vendor/leptos-csr/Cargo.toml");
-        let macros = frontend.join("vendor/xcss-web/vendor/leptos-macro-csr/Cargo.toml");
+        let facade = frontend.join("vendor/xcss-web/Cargo.toml");
+        std::fs::write(&facade, "test")?;
+        let core = frontend.join("vendor/xcss-web/vendor/xcss-web-core/Cargo.toml");
+        let macros = frontend.join("vendor/xcss-web/vendor/xcss-web-macro/Cargo.toml");
         let value = json!({"packages":[
             {"id":"root","name":"product-web","version":"1","source":null,"manifest_path":frontend.join("Cargo.toml"),"targets":[{"kind":["cdylib"]}]},
-            {"id":"core","name":"leptos","version":"0.8.19","source":null,"manifest_path":core,"targets":[{"kind":["lib"]}]},
-            {"id":"macro","name":"leptos_macro","version":"0.8.17","source":null,"manifest_path":macros,"targets":[{"kind":["proc-macro"]}]},
+            {"id":"core","name":"xcss-web-core","version":"0.8.19","source":null,"manifest_path":core,"targets":[{"kind":["lib"]}]},
+            {"id":"macro","name":"xcss-web-macro","version":"0.8.17","source":null,"manifest_path":macros,"targets":[{"kind":["proc-macro"]}]},
+            {"id":"facade","name":"xcss-web","version":"1.0.0","source":null,"manifest_path":facade,"targets":[{"kind":["lib"]}]},
             {"id":"graph","name":"reactive_graph","version":"0.2","source":"registry","manifest_path":"registry","targets":[{"kind":["lib"]}]}
         ],"resolve":{"root":"root","nodes":[
-            {"id":"root","dependencies":["core"],"features":["default"]},
+            {"id":"root","dependencies":["facade"],"features":["default"]},
             {"id":"core","dependencies":["macro","graph"],"features":["csr"]},
             {"id":"macro","dependencies":[],"features":["csr"]},
+            {"id":"facade","dependencies":["core"],"features":[]},
             {"id":"graph","dependencies":[],"features":["default","effects"]}
         ]}});
         Ok((temp, value))
@@ -215,17 +240,40 @@ mod tests {
         Ok(())
     }
     #[test]
+    fn csr_graph_rejects_upstream_framework_beside_integrated_runtime() -> Result<()> {
+        let (temp, mut value) = fixture()?;
+        value["packages"].as_array_mut().unwrap().push(json!({
+            "id":"upstream","name":"leptos","version":"0.8.19","source":"registry",
+            "manifest_path":"registry","targets":[{"kind":["lib"]}]
+        }));
+        value["resolve"]["nodes"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({
+                "id":"upstream","dependencies":[],"features":["csr"]
+            }));
+        value["resolve"]["nodes"][0]["dependencies"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!("upstream"));
+        assert!(validate(&value, temp.path()).is_err());
+        Ok(())
+    }
+    #[test]
     fn csr_graph_rejects_full_and_hydration_and_registry_runtime() -> Result<()> {
         let (temp, value) = fixture()?;
         let mut full = value.clone();
         full["resolve"]["nodes"][1]["features"] = json!(["csr", "full"]);
         assert!(validate(&full, temp.path()).is_err());
         let mut hydration = value.clone();
-        hydration["resolve"]["nodes"][3]["features"] = json!(["default", "hydration"]);
+        hydration["resolve"]["nodes"][4]["features"] = json!(["default", "hydration"]);
         assert!(validate(&hydration, temp.path()).is_err());
-        let mut registry = value;
+        let mut registry = value.clone();
         registry["packages"][1]["source"] = json!("registry");
         assert!(validate(&registry, temp.path()).is_err());
+        let mut registry_facade = value;
+        registry_facade["packages"][3]["source"] = json!("registry");
+        assert!(validate(&registry_facade, temp.path()).is_err());
         Ok(())
     }
 }

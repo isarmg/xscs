@@ -1123,7 +1123,7 @@ mod tests {
             crate::web_assets::ASSETS
                 .iter()
                 .find(|asset| asset.path.ends_with(".wasm"))
-                .expect("Leptos browser WASM must be embedded")
+                .expect("xcss-web browser WASM must be embedded")
                 .path,
         ] {
             let expected = crate::web_assets::ASSETS

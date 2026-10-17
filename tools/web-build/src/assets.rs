@@ -130,8 +130,8 @@ impl Config {
             Self::default()
         };
         if config.web.entry.is_empty() {
-            config.web.entry = if web.join("src/main-leptos.js").is_file() {
-                "src/main-leptos.js"
+            config.web.entry = if web.join("src/main-xcss-web.js").is_file() {
+                "src/main-xcss-web.js"
             } else {
                 "src/main.js"
             }
@@ -804,7 +804,7 @@ impl Linker {
             ensure!(!bytes.is_empty(), "Required license is empty");
             self.generated_output(output, bytes)?;
         }
-        self.generated_output("assets/leptos-build.json".into(), provenance.into())?;
+        self.generated_output("assets/xcss-web-build.json".into(), provenance.into())?;
         let vendor_sources = inventory::walk(&self.web.join("vendor"))?
             .into_iter()
             .filter(|p| p.file_name().is_some_and(|v| v == "SOURCE.json"))
@@ -1285,7 +1285,7 @@ mod tests {
             assert_eq!(delivered.len(), 1);
             assert_eq!(delivered[0]["sha256"], inventory::sha(&outputs[&output]));
         }
-        assert_eq!(outputs["assets/leptos-build.json"], provenance);
+        assert_eq!(outputs["assets/xcss-web-build.json"], provenance);
         Ok(())
     }
 
@@ -1352,14 +1352,14 @@ mod tests {
         assert!(error.to_string().contains("Asset oversized.bin exceeds"));
         fs::remove_file(web.join("public/oversized.bin"))?;
         fs::create_dir(web.join("public/assets"))?;
-        fs::write(web.join("public/assets/leptos-build.json"), "{}")?;
+        fs::write(web.join("public/assets/xcss-web-build.json"), "{}")?;
         let error = Linker::new(web, &web.join("pkg"), config)
             .finish(b"{}")
             .unwrap_err();
         assert!(
             error
                 .to_string()
-                .contains("Public asset shadows a generated resource: assets/leptos-build.json")
+                .contains("Public asset shadows a generated resource: assets/xcss-web-build.json")
         );
         Ok(())
     }

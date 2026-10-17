@@ -40,9 +40,9 @@ assert.equal(typeof prepareApplicationFonts, "function");
 assert.equal(typeof startAfterFonts, "function");
 
 // The default production entry must execute Rust; React remains a reference only.
-const entry = readFileSync(new URL("../src/main-leptos.js", import.meta.url), "utf8");
+const entry = readFileSync(new URL("../src/main-xcss-web.js", import.meta.url), "utf8");
 const index = readFileSync(new URL("../index.html", import.meta.url), "utf8");
-assert.match(index, /src\/main-leptos\.js/);
+assert.match(index, /src\/main-xcss-web\.js/);
 assert.match(entry, /_web_bg\.wasm\?url/);
 for (const name of ["react", "react-dom", "@vitejs/plugin-react"]) {
   assert.equal(manifest.dependencies?.[name] ?? manifest.devDependencies?.[name], undefined);

@@ -46,7 +46,7 @@ try {
    const wasm=page.waitForResponse(response=>new URL(response.url()).pathname.endsWith('.wasm')&&response.status()===200);
    await page.goto(server.resolvedUrls.local[0]);
    await wasm;
-   await expect(page.locator('html')).toHaveAttribute('data-xcss-runtime','leptos',{timeout:30_000});
+   await expect(page.locator('html')).toHaveAttribute('data-xcss-runtime','xcss-web',{timeout:30_000});
    await expect(page.locator('html')).toHaveAttribute('data-theme','light');
    await page.emulateMedia({colorScheme:'dark'});
    await expect(page.locator('html')).toHaveAttribute('data-theme','dark');
