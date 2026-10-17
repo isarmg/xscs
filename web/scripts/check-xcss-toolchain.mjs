@@ -1,48 +1,45 @@
-import {prepareApplicationFonts, startAfterFonts} from "@xcss/web/web-fonts";
 import assert from "node:assert/strict";
-import { existsSync, readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 
-import manifest from "../package.json" with { type: "json" };
+const web = new URL("../", import.meta.url);
+const read = path => readFileSync(new URL(path, web), "utf8");
+const manifest = JSON.parse(read("package.json"));
+const lock = JSON.parse(read("package-lock.json"));
 assert.deepEqual(manifest.dependencies ?? {}, {});
+assert.deepEqual(lock.packages[""].devDependencies, manifest.devDependencies);
+assert.match(read("../.node-version"), /^26\.7\.0\n?$/);
 
-const lock = JSON.parse(
-  readFileSync(new URL("../package-lock.json", import.meta.url), "utf8"),
-);
-// One exact published xcss version, with tarball integrity and no local links.
-
-const xcssPackages = ["@xcss/web"];
-
-const nodeVersion = readFileSync(
-  new URL("../../.node-version", import.meta.url),
-  "utf8",
-);
-assert.match(nodeVersion, /^26\.7\.0\n?$/);
-for (const dependency of xcssPackages) {
-  const expected = "https://github.com/isarmg/xcss/releases/download/v1.0.0/xcss-web-1.0.0.tgz";
-  assert.equal(manifest.devDependencies?.[dependency], expected);
-  assert.equal(lock.packages?.[""]?.devDependencies?.[dependency], expected);
-
-  const locked = lock.packages?.[`node_modules/${dependency}`];
-  assert.equal(locked?.link, undefined);
-  assert.equal(locked?.resolved, expected);
-  assert.equal(locked?.version, "1.0.0");
-  assert.equal(locked?.integrity, "sha512-QR/zmdzyQkLnFzTTp+EHYnOL9XEe5N95XVUasnDlKqdNWw/nVoY4evq083QTxMED/ElRRYeegEItnTxCUcb7TQ==");
+// Test the same checked-in assets that the Rust builder ships, never a second
+// npm copy with a different version or retired React/Vite peer dependencies.
+for (const name of ["@xcss/web", "react", "react-dom", "@vitejs/plugin-react", "vite", "typescript"]) {
+  assert.equal(manifest.dependencies?.[name] ?? manifest.devDependencies?.[name], undefined, name);
+  assert.equal(lock.packages[`node_modules/${name}`], undefined, name);
 }
-const adminStyles = readFileSync(new URL("../node_modules/@xcss/web/dist/admin-ui/styles.css", import.meta.url), "utf8");
-assert.match(adminStyles, /@import ["']\.\/content-blocks\.css["']/);
+for (const directory of ["vendor/xcss", "xcss-web/vendor/xcss-web"]) {
+  const source = JSON.parse(read(`${directory}/SOURCE.json`));
+  assert.equal(source.format, 1);
+  assert.ok(Object.keys(source.files).length > 0);
+  for (const [path, digest] of Object.entries(source.files)) {
+    assert.match(digest, /^[a-f0-9]{64}$/, path);
+    const actual = createHash("sha256").update(readFileSync(new URL(`${directory}/${path}`, web))).digest("hex");
+    assert.equal(actual, digest, `${directory}/${path}: resync from the recorded public source`);
+  }
+}
+assert.match(read("rust-web.toml"), /"@xcss\/web\/"\s*=\s*"vendor\/xcss\/"/);
+assert.match(read("vendor/xcss/admin-ui/styles.css"), /@import ["']\.\/content-blocks\.css["']/);
 for (const snapshot of ["content-blocks.css", "provenance.json", "verify.mjs"]) {
-  assert.equal(existsSync(new URL(`../appearance/${snapshot}`, import.meta.url)), false, "xcss CSS must not be copied into the product");
+  assert.equal(existsSync(new URL(`appearance/${snapshot}`, web)), false, "use the verified vendor snapshot");
 }
-
-assert.equal(typeof prepareApplicationFonts, "function");
-assert.equal(typeof startAfterFonts, "function");
-
-// The default production entry must execute Rust; Only the current CSR implementation is maintained.
-const entry = readFileSync(new URL("../src/main-xcss-web.js", import.meta.url), "utf8");
-const index = readFileSync(new URL("../index.html", import.meta.url), "utf8");
-assert.match(index, /src\/main-xcss-web\.js/);
+const entryPath = read("rust-web.toml").match(/^entry = "([^"]+)"/m)?.[1];
+assert.ok(entryPath, "Rust builder must declare its entry");
+assert.ok(read("index.html").includes(`src="/${entryPath}"`), "HTML must use the Rust builder entry");
+assert.doesNotMatch(read("index.html"), /node_modules/, "font preloads must use the vendored production assets");
+const entry = read(entryPath);
 assert.match(entry, /_web_bg\.wasm\?url/);
-for (const name of ["react", "react-dom", "@vitejs/plugin-react"]) {
-  assert.equal(manifest.dependencies?.[name] ?? manifest.devDependencies?.[name], undefined);
-  assert.equal(lock.packages?.[`node_modules/${name}`], undefined);
+assert.match(entry, /startApplication/);
+assert.match(read("xcss-web/vendor/xcss-web/startup.js"), /export function startApplication/);
+for (const file of readdirSync(new URL("tests/", web)).filter(file => file.endsWith(".mjs"))) {
+  assert.doesNotMatch(read(`tests/${file}`), /^(?:import|export)\s.*?["']@xcss\/web|import\s*\(\s*["']@xcss\/web/m, `${file}: test shipped vendor assets`);
 }
+console.log("Rust/WASM entry, verified public snapshots and browser-only npm dependencies passed");

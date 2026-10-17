@@ -134,7 +134,9 @@ jobs:
           cache-dependency-path: web/package-lock.json
       - name: Install frontend dependencies
         working-directory: web
-        run: npm ci
+        run: |
+          npm ci
+          npm run check:xcss
       - name: Install pinned browser Rust tools
         run: |
           rustup toolchain install 1.99.0 --profile minimal --component rustfmt,clippy --target wasm32-unknown-unknown

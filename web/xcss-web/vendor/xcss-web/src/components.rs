@@ -477,7 +477,11 @@ pub fn AdminShell(
             if next.phase != AuthPhase::Authenticated {
                 toasts.records.set(Vec::new());
             }
-            auth.set(next);
+            // Retain mounted forms and their pending/failure state when only
+            // the private authentication generation changed.
+            if auth.get_untracked() != next {
+                auth.set(next);
+            }
         },
     ));
     on_cleanup(move || drop(listener));

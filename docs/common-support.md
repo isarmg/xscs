@@ -6,7 +6,7 @@
 |---|---|---|
 | `xcss` | Linux x86_64 GNU 原生服务端公共模块 | 根 `Cargo.toml` 的官方 Git URL、完整 revision 和精确版本；根 `Cargo.lock` |
 | `xcss-web` | `wasm32-unknown-unknown` 浏览器 CSR | `web/xcss-web/vendor/xcss-web/SOURCE.json` 绑定官方修订与逐文件摘要；前端 `Cargo.lock` |
-| `@xcss/web` | 当前使用的 CSS、字体与必要 DOM 适配 | `web/package.json` 的不可变发行 URL 和 `package-lock.json` 的真实完整性摘要 |
+| `@xcss/web` | 当前使用的 CSS、字体与必要 DOM 适配 | `web/vendor/xcss/SOURCE.json` 的官方来源、归档完整性与逐文件摘要；由 Rust builder 验证，不安装 npm 包 |
 
 `xcss-product.toml` 声明 Axum、`web-csr-admin` 和实际公共能力，其原生依赖身份与根 Cargo 声明一致。浏览器内部核心和过程宏由公共入口引入，产品不直接依赖它们。源码快照不能手改；更新时从公共来源同步并重新核验摘要与原始许可证。
 

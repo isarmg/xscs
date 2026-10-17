@@ -8,7 +8,7 @@
   },
   "scripts": {
     "dev": "cargo +1.99.0 run --quiet --locked --manifest-path ../tools/web-build/Cargo.toml -- serve --product-root .. --debug --bind 127.0.0.1:5173",
-    "check:xcss": "node scripts/check-xcss-toolchain.mjs",
+    "check:xcss": "node scripts/check-xcss-toolchain.mjs && node --test tests/toolchain-contract.test.mjs",
     "build": "cargo +1.99.0 run --quiet --locked --manifest-path ../tools/web-build/Cargo.toml -- build --product-root ..",
     "preview": "cargo +1.99.0 run --quiet --locked --manifest-path ../tools/web-build/Cargo.toml -- preview --product-root .. --bind 127.0.0.1:4173",
     "test:browser": "npm run build && node tests/browser-acceptance.mjs",
@@ -20,7 +20,6 @@
   },
   "devDependencies": {
     "@axe-core/playwright": "4.13.0",
-    "@playwright/test": "1.63.0",
-    "@xcss/web": "https://github.com/isarmg/xcss/releases/download/v1.0.0/xcss-web-1.0.0.tgz"
+    "@playwright/test": "1.63.0"
   }
 }
