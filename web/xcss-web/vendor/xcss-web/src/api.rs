@@ -108,11 +108,11 @@ struct State {
     phase: AuthPhase,
     error: Option<ApiError>,
     account_updated: bool,
-    revoking: bool,
+    revoking: Option<u64>,
     restore: Option<(u64, Restore)>,
 }
 thread_local! {
-    static STATE: RefCell<State> = const { RefCell::new(State { session: None, transport: None, generation: 0, phase: AuthPhase::Loading, error: None, account_updated: false, revoking: false, restore: None }) };
+    static STATE: RefCell<State> = const { RefCell::new(State { session: None, transport: None, generation: 0, phase: AuthPhase::Loading, error: None, account_updated: false, revoking: None, restore: None }) };
     static MUTATIONS: Rc<Mutex<()>> = Rc::new(Mutex::new(()));
 }
 pub fn current_session() -> Option<AdministratorSession> {
@@ -151,10 +151,13 @@ fn invalidate(error: Option<ApiError>) {
     });
     changed();
 }
-fn begin_mutation() -> u64 {
+fn begin_mutation(revoking: bool) -> u64 {
     let generation = STATE.with(|s| {
         let mut s = s.borrow_mut();
         s.generation += 1;
+        if revoking {
+            s.revoking = Some(s.generation);
+        }
         s.restore = None;
         s.session = None;
         // Keep the revocation warning until a successful login replaces its
@@ -187,7 +190,7 @@ fn publish(
         s.phase = AuthPhase::Authenticated;
         s.error = None;
         s.account_updated = false;
-        s.revoking = false;
+        s.revoking = None;
     });
     changed();
     Ok(session)
@@ -624,7 +627,7 @@ pub async fn login(username: &str, password: &str) -> Result<AdministratorSessio
     if !valid_username_candidate(username) || !valid_password(password) {
         return Err(ApiError::local("invalid_credentials"));
     }
-    let generation = begin_mutation();
+    let generation = begin_mutation(false);
     let mutex = MUTATIONS.with(Clone::clone);
     let _guard = mutex.lock().await;
     let received = send(
@@ -643,7 +646,7 @@ pub async fn restore() -> Result<AdministratorSession, ApiError> {
     // A cookie may still be valid while logout is pending or failed. Restoring it
     // would undo the user's local sign-out and discard the revocation warning.
     // Only an explicit successful login or confirmed logout ends this barrier.
-    if STATE.with(|s| s.borrow().revoking) {
+    if STATE.with(|s| s.borrow().revoking.is_some()) {
         return Err(ApiError::local("auth_logout_unconfirmed"));
     }
     let (generation, pending) = STATE.with(|s| {
@@ -695,8 +698,7 @@ pub async fn restore() -> Result<AdministratorSession, ApiError> {
 }
 
 pub async fn logout() -> Result<(), ApiError> {
-    STATE.with(|s| s.borrow_mut().revoking = true);
-    let generation = begin_mutation();
+    let generation = begin_mutation(true);
     let mutex = MUTATIONS.with(Clone::clone);
     let _guard = mutex.lock().await;
     let token = STATE.with(|s| s.borrow().transport.as_ref().map(|v| v.csrf_token.clone()));
@@ -716,31 +718,40 @@ pub async fn logout() -> Result<(), ApiError> {
             Err(ApiError::local("invalid_response_shape"))
         }
     });
-    match result {
-        Ok(()) => {}
-        Err(error) if error.status == 401 && error.code == "auth.session_required" => {}
-        Err(error) => {
-            if require_generation(generation).is_ok() {
-                STATE.with(|s| {
-                    let mut s = s.borrow_mut();
-                    s.phase = AuthPhase::LogoutUnconfirmed;
-                    s.error = Some(error.clone());
-                });
-                changed();
-            }
-            return Err(error);
-        }
+    let error = match result {
+        Ok(()) => None,
+        Err(error) if error.status == 401 && error.code == "auth.session_required" => None,
+        Err(error) => Some(error),
+    };
+    let notify = STATE.with(|s| settle_revocation(&mut s.borrow_mut(), generation, error.as_ref()));
+    if notify {
+        changed();
     }
-    require_generation(generation)?;
-    STATE.with(|s| {
-        let mut s = s.borrow_mut();
-        s.transport = None;
-        s.revoking = false;
-        s.phase = AuthPhase::Anonymous;
-        s.error = None;
-    });
-    changed();
-    Ok(())
+    if let Some(error) = error {
+        return Err(error);
+    }
+    require_generation(generation)
+}
+
+// Called while holding MUTATIONS: no later login has reached the server yet.
+// Its queued intent can supersede this operation's return value, but cannot
+// undo the server's revocation result. A newer logout owns its own barrier.
+fn settle_revocation(state: &mut State, generation: u64, error: Option<&ApiError>) -> bool {
+    if error.is_none() {
+        state.transport = None;
+    }
+    if state.revoking != Some(generation) {
+        return false;
+    }
+    if let Some(error) = error {
+        state.phase = AuthPhase::LogoutUnconfirmed;
+        state.error = Some(error.clone());
+    } else {
+        state.revoking = None;
+        state.phase = AuthPhase::Anonymous;
+        state.error = None;
+    }
+    true
 }
 
 pub async fn update_account(input: Value) -> Result<(), ApiError> {
@@ -791,23 +802,85 @@ mod tests {
         for phase in [AuthPhase::Anonymous, AuthPhase::LogoutUnconfirmed] {
             STATE.with(|state| {
                 let mut state = state.borrow_mut();
-                state.revoking = true;
+                state.revoking = Some(state.generation);
                 state.phase = phase.clone();
             });
             let error = futures::executor::block_on(restore()).unwrap_err();
             assert_eq!(error.code, "auth_logout_unconfirmed");
             STATE.with(|state| {
                 let state = state.borrow();
-                assert!(state.revoking);
+                assert!(state.revoking.is_some());
                 assert!(state.phase == phase);
                 assert!(state.restore.is_none());
             });
         }
         STATE.with(|state| {
             let mut state = state.borrow_mut();
-            state.revoking = false;
+            state.revoking = None;
             state.phase = AuthPhase::Loading;
         });
+    }
+
+    fn revocation_state(latest_intent: u64, latest_logout: u64) -> State {
+        State {
+            session: None,
+            transport: Some(AdministratorSession {
+                authenticated: true,
+                user_id: "admin-id".into(),
+                username: "admin".into(),
+                role: "admin".into(),
+                csrf_token: "A".repeat(43),
+            }),
+            generation: latest_intent,
+            phase: AuthPhase::Anonymous,
+            error: None,
+            account_updated: false,
+            revoking: Some(latest_logout),
+            restore: None,
+        }
+    }
+
+    #[test]
+    fn queued_login_does_not_discard_logout_failure() {
+        // Logout owns generation 1; login intent 2 is waiting for its lock.
+        let mut state = revocation_state(2, 1);
+        let error = ApiError::local("network_error");
+        assert!(settle_revocation(&mut state, 1, Some(&error)));
+        // A failed login returns without publishing any state.
+        assert_eq!(state.generation, 2);
+        assert_eq!(state.phase, AuthPhase::LogoutUnconfirmed);
+        assert_eq!(state.revoking, Some(1));
+        assert_eq!(state.error, Some(error));
+        assert!(state.transport.is_some());
+    }
+
+    #[test]
+    fn queued_login_does_not_discard_confirmed_logout() {
+        let mut state = revocation_state(2, 1);
+        assert!(settle_revocation(&mut state, 1, None));
+        assert_eq!(state.generation, 2);
+        assert_eq!(state.phase, AuthPhase::Anonymous);
+        assert_eq!(state.revoking, None);
+        assert!(state.transport.is_none());
+        assert!(state.error.is_none());
+    }
+
+    #[test]
+    fn older_logout_cannot_settle_a_newer_logout_barrier() {
+        // Logout 1, login 2, and logout 3 have all recorded their intents.
+        for old_error in [None, Some(ApiError::local("network_error"))] {
+            let mut state = revocation_state(3, 3);
+            assert!(!settle_revocation(&mut state, 1, old_error.as_ref()));
+            assert_eq!(state.generation, 3);
+            assert_eq!(state.revoking, Some(3));
+            assert_eq!(state.phase, AuthPhase::Anonymous);
+            let error = ApiError::local("request_timeout");
+            assert!(settle_revocation(&mut state, 3, Some(&error)));
+            assert_eq!(state.phase, AuthPhase::LogoutUnconfirmed);
+            assert_eq!(state.revoking, Some(3));
+            assert!(settle_revocation(&mut state, 3, None));
+            assert_eq!(state.revoking, None);
+        }
     }
 
     #[test]
