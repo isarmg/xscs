@@ -1,6 +1,4 @@
 //! The browser client and its immutable inventory are compiled into this binary.
-#[path = "xcss_web_assets.rs"]
-mod xcss_web_assets;
 
 include!(concat!(env!("OUT_DIR"), "/xcss-web-assets.rs"));
 
@@ -12,7 +10,7 @@ pub fn response(
 ) -> axum::response::Response {
     match directory {
         Some(directory) => directory.response(path, method, headers),
-        None => xcss_web_assets::response(path, method, headers, |path, method, headers| {
+        None => xcss::web_assets::wasm::response(path, method, headers, |path, method, headers| {
             xcss::web_assets::response(ASSETS, path, method, headers)
         }),
     }
