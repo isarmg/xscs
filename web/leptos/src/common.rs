@@ -1,3 +1,4 @@
+use leptos::component::{component_props_builder, component_view};
 use leptos::prelude::*;
 use serde_json::Value;
 use wasm_bindgen::{JsCast, closure::Closure};
@@ -53,6 +54,13 @@ pub fn resource(
     revision: RwSignal<u64>,
     poll_ms: u32,
 ) -> (RwSignal<Option<Value>>, RwSignal<Option<ApiError>>) {
+    resource_typed(path, revision, poll_ms)
+}
+pub fn resource_typed<T: serde::de::DeserializeOwned + Clone + Send + Sync + 'static>(
+    path: Signal<String>,
+    revision: RwSignal<u64>,
+    poll_ms: u32,
+) -> (RwSignal<Option<T>>, RwSignal<Option<ApiError>>) {
     let data = RwSignal::new(None);
     let error = RwSignal::new(None);
     let previous = StoredValue::new(String::new());
@@ -104,7 +112,7 @@ pub fn resource(
                 if first || poll_ms == 0 || !web_sys::window().unwrap().document().unwrap().hidden()
                 {
                     first = false;
-                    let result = api::request_with_options(
+                    let result = api::request_typed_validated_with_options::<T>(
                         &path,
                         "GET",
                         None,
@@ -114,18 +122,18 @@ pub fn resource(
                             max_response_bytes: 2 * 1024 * 1024,
                             ..Default::default()
                         },
+                        |v| crate::contracts::validate(&path, v),
                     )
                     .await;
                     if stop.aborted() {
                         break;
                     }
                     match result {
-                        Ok(v) if crate::contracts::validate(&path, &v) => {
+                        Ok(v) => {
                             data.set(Some(v));
                             error.set(None)
                         }
-                        Ok(_) => error.set(Some(invalid_response())),
-                        Err(e) => error.set(Some(e)),
+                        Err(e) => error.set(Some(response_error(e))),
                     }
                 }
                 if poll_ms == 0 {
@@ -137,6 +145,23 @@ pub fn resource(
     });
     (data, error)
 }
+/// Serialize a DTO before starting a mutation; failures leave the request unsent.
+pub fn mutation_json<T: serde::de::DeserializeOwned + 'static>(
+    path: String,
+    method: &'static str,
+    body: impl serde::Serialize,
+    busy: RwSignal<bool>,
+    error: RwSignal<Option<ApiError>>,
+    done: impl FnOnce(T) + 'static,
+) {
+    if busy.get_untracked() {
+        return;
+    }
+    match api::encode_json_body(&body) {
+        Ok(body) => mutation_typed(path, method, Some(body), busy, error, done),
+        Err(e) => error.set(Some(e)),
+    }
+}
 pub fn mutation(
     path: String,
     method: &'static str,
@@ -144,6 +169,16 @@ pub fn mutation(
     busy: RwSignal<bool>,
     error: RwSignal<Option<ApiError>>,
     done: impl FnOnce(Value) + 'static,
+) {
+    mutation_typed(path, method, body, busy, error, done)
+}
+pub fn mutation_typed<T: serde::de::DeserializeOwned + 'static>(
+    path: String,
+    method: &'static str,
+    body: Option<Value>,
+    busy: RwSignal<bool>,
+    error: RwSignal<Option<ApiError>>,
+    done: impl FnOnce(T) + 'static,
 ) {
     if busy.get_untracked() {
         return;
@@ -155,7 +190,7 @@ pub fn mutation(
     let cleanup_controller = send_wrapper::SendWrapper::new(controller);
     on_cleanup(move || cleanup_controller.abort());
     leptos::task::spawn_local(async move {
-        let result = api::request_with_options(
+        let result = api::request_typed_validated_with_options::<T>(
             &path,
             method,
             body,
@@ -163,15 +198,15 @@ pub fn mutation(
                 signal: Some(stop.clone()),
                 ..Default::default()
             },
+            |v| valid_mutation_response(&path, method, v),
         )
         .await;
         if stop.aborted() {
             return;
         }
         match result {
-            Ok(v) if valid_mutation_response(&path, method, &v) => done(v),
-            Ok(_) => error.set(Some(invalid_response())),
-            Err(e) => error.set(Some(e)),
+            Ok(v) => done(v),
+            Err(e) => error.set(Some(response_error(e))),
         }
         busy.set(false);
     });
@@ -230,7 +265,34 @@ pub fn Failure(
     message: String,
 ) -> impl IntoView {
     move || {
-        error.get().map(|e|view!{<xcss_web::components::ErrorState message=message.clone() request_id=e.request_id/>})
+        error.get().map(|e| {
+            View::new({
+                #[allow(unreachable_code)]
+                #[allow(unused_mut)]
+                #[allow(clippy::let_and_return, clippy::let_unit_value, clippy::unit_arg)]
+                component_view(
+                    #[allow(clippy::needless_borrows_for_generic_args)]
+                    &xcss_web::components::ErrorState,
+                    {
+                        let mut props = component_props_builder(&xcss_web::components::ErrorState)
+                            .message(
+                                #[allow(unused_braces)]
+                                {
+                                    message.clone()
+                                },
+                            )
+                            .request_id(
+                                #[allow(unused_braces)]
+                                {
+                                    e.request_id
+                                },
+                            )
+                            .build();
+                        props
+                    },
+                )
+            })
+        })
     }
 }
 #[component]
@@ -240,7 +302,76 @@ pub fn Pagination(
     revision: RwSignal<u64>,
     #[prop(default=t("实例分页","Instance pages"))] label: String,
 ) -> impl IntoView {
-    view! {<nav class="xcss-actions" aria-label=label><button class="xcss-button" disabled=move||cursor.get().is_empty() on:click=move |_|{cursor.set(String::new());revision.update(|v|*v+=1);}>{move||t("首页","First page")}</button><button class="xcss-button" disabled=move||data.get().and_then(|v|v["previous_cursor"].as_str().map(str::to_string)).is_none() on:click=move |_|{if let Some(c)=data.get_untracked().and_then(|v|v["previous_cursor"].as_str().map(str::to_string)){cursor.set(c)}}>{move||t("上一页","Previous page")}</button><button class="xcss-button" disabled=move||data.get().and_then(|v|v["next_cursor"].as_str().map(str::to_string)).is_none() on:click=move |_|{if let Some(c)=data.get_untracked().and_then(|v|v["next_cursor"].as_str().map(str::to_string)){cursor.set(c)}}>{move||t("下一页","Next page")}</button></nav>}
+    View::new(
+        leptos::html::nav()
+            .child((
+                leptos::html::button()
+                    .child(
+                        #[allow(unused_braces)]
+                        {
+                            IntoRender::into_render({ move || t("首页", "First page") })
+                        },
+                    )
+                    .class("xcss-button")
+                    .disabled(::leptos::prelude::IntoAttributeValue::into_attribute_value(
+                        move || cursor.get().is_empty(),
+                    ))
+                    .on(leptos::ev::click, move |_| {
+                        cursor.set(String::new());
+                        revision.update(|v| *v += 1);
+                    }),
+                leptos::html::button()
+                    .child(
+                        #[allow(unused_braces)]
+                        {
+                            IntoRender::into_render({ move || t("上一页", "Previous page") })
+                        },
+                    )
+                    .class("xcss-button")
+                    .disabled(::leptos::prelude::IntoAttributeValue::into_attribute_value(
+                        move || {
+                            data.get()
+                                .and_then(|v| v["previous_cursor"].as_str().map(str::to_string))
+                                .is_none()
+                        },
+                    ))
+                    .on(leptos::ev::click, move |_| {
+                        if let Some(c) = data
+                            .get_untracked()
+                            .and_then(|v| v["previous_cursor"].as_str().map(str::to_string))
+                        {
+                            cursor.set(c)
+                        }
+                    }),
+                leptos::html::button()
+                    .child(
+                        #[allow(unused_braces)]
+                        {
+                            IntoRender::into_render({ move || t("下一页", "Next page") })
+                        },
+                    )
+                    .class("xcss-button")
+                    .disabled(::leptos::prelude::IntoAttributeValue::into_attribute_value(
+                        move || {
+                            data.get()
+                                .and_then(|v| v["next_cursor"].as_str().map(str::to_string))
+                                .is_none()
+                        },
+                    ))
+                    .on(leptos::ev::click, move |_| {
+                        if let Some(c) = data
+                            .get_untracked()
+                            .and_then(|v| v["next_cursor"].as_str().map(str::to_string))
+                        {
+                            cursor.set(c)
+                        }
+                    }),
+            ))
+            .class("xcss-actions")
+            .aria_label(::leptos::prelude::IntoAttributeValue::into_attribute_value(
+                label,
+            )),
+    )
 }
 #[component]
 pub fn HeaderActions(
@@ -248,15 +379,226 @@ pub fn HeaderActions(
     revision: RwSignal<u64>,
     busy: RwSignal<bool>,
 ) -> impl IntoView {
-    view! {<xcss_web::components::HeaderActions><button class="xcss-button" aria-label=move||t("新建实例","Create instance") title=move||t("新建实例","Create instance") disabled=move||busy.get() on:click=move |_|create.run(())><svg width="1em" height="1em" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M12 5v14M5 12h14"/></svg></button><button class="xcss-button" aria-label=move||t("刷新","Refresh") title=move||t("刷新","Refresh") disabled=move||busy.get() on:click=move |_|revision.update(|v|*v+=1)><svg width="1em" height="1em" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M20 11a8 8 0 1 0-2 6M20 4v7h-7"/></svg></button></xcss_web::components::HeaderActions>}
+    View::new({
+        #[allow(unreachable_code)]
+        #[allow(unused_mut)]
+        #[allow(clippy::let_and_return, clippy::let_unit_value, clippy::unit_arg)]
+        component_view(
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            &xcss_web::components::HeaderActions,
+            {
+                let mut props =
+                    component_props_builder(&xcss_web::components::HeaderActions)
+                        .children({
+                            ::leptos::children::ToChildren::to_children(move || {
+                                (
+                        leptos::html::button()
+                            .child(
+                                #[allow(unused_braces)]
+                                {
+                                    leptos::svg::svg()
+                                        .child(
+                                            #[allow(unused_braces)]
+                                            {
+                                                leptos::svg::path().attr("d", "M12 5v14M5 12h14")
+                                            },
+                                        )
+                                        .attr("width", "1em")
+                                        .attr("height", "1em")
+                                        .attr("viewBox", "0 0 24 24")
+                                        .attr("aria-hidden", "true")
+                                        .attr("fill", "none")
+                                        .attr("stroke", "currentColor")
+                                        .attr("stroke-width", "1.7")
+                                },
+                            )
+                            .class("xcss-button")
+                            .aria_label(
+                                ::leptos::prelude::IntoAttributeValue::into_attribute_value(move ||
+                                t("新建实例", "Create instance")),
+                            )
+                            .title(
+                                ::leptos::prelude::IntoAttributeValue::into_attribute_value(move ||
+                                t("新建实例", "Create instance")),
+                            )
+                            .disabled(
+                                ::leptos::prelude::IntoAttributeValue::into_attribute_value(move ||
+                                busy.get()),
+                            )
+                            .on(
+                                leptos::ev::click,
+                                move |_| create.run(()),
+                            ),
+                        leptos::html::button()
+                            .child(
+                                #[allow(unused_braces)]
+                                {
+                                    leptos::svg::svg()
+                                        .child(
+                                            #[allow(unused_braces)]
+                                            {
+                                                leptos::svg::path()
+                                                    .attr("d", "M20 11a8 8 0 1 0-2 6M20 4v7h-7")
+                                            },
+                                        )
+                                        .attr("width", "1em")
+                                        .attr("height", "1em")
+                                        .attr("viewBox", "0 0 24 24")
+                                        .attr("aria-hidden", "true")
+                                        .attr("fill", "none")
+                                        .attr("stroke", "currentColor")
+                                        .attr("stroke-width", "1.7")
+                                },
+                            )
+                            .class("xcss-button")
+                            .aria_label(
+                                ::leptos::prelude::IntoAttributeValue::into_attribute_value(move ||
+                                t("刷新", "Refresh")),
+                            )
+                            .title(
+                                ::leptos::prelude::IntoAttributeValue::into_attribute_value(move ||
+                                t("刷新", "Refresh")),
+                            )
+                            .disabled(
+                                ::leptos::prelude::IntoAttributeValue::into_attribute_value(move ||
+                                busy.get()),
+                            )
+                            .on(
+                                leptos::ev::click,
+                                move |_| revision.update(|v| *v += 1),
+                            ),
+                    )
+                            })
+                        })
+                        .build();
+                props
+            },
+        )
+    })
 }
 #[component]
 pub fn PageNav(selected: Signal<String>, #[prop(default = true)] logs: bool) -> impl IntoView {
     let location = route();
     if !logs {
-        return view!{<nav class="xcss-actions" aria-label=move||t("实例导航","Instance navigation")><a href="#instances">{move||t("实例","Instances")}</a><a href=move||format!("#details/{}",enc(&selected.get()))>{move||t("详细信息","Details")}</a></nav>}.into_any();
+        return View::new(
+            leptos::html::nav()
+                .child((
+                    leptos::html::a()
+                        .child(
+                            #[allow(unused_braces)]
+                            {
+                                IntoRender::into_render({ move || t("实例", "Instances") })
+                            },
+                        )
+                        .href("#instances"),
+                    leptos::html::a()
+                        .child(
+                            #[allow(unused_braces)]
+                            {
+                                IntoRender::into_render({ move || t("详细信息", "Details") })
+                            },
+                        )
+                        .href(::leptos::prelude::IntoAttributeValue::into_attribute_value(
+                            move || format!("#details/{}", enc(&selected.get())),
+                        )),
+                ))
+                .class("xcss-actions")
+                .aria_label(::leptos::prelude::IntoAttributeValue::into_attribute_value(
+                    move || t("实例导航", "Instance navigation"),
+                )),
+        )
+        .into_any();
     }
-    view!{<xcss_web::components::HeaderNavigation><button class="xcss-button" aria-pressed=move||(!location.get().starts_with("details")&&!location.get().starts_with("logs")&&location.get()!="account").to_string() on:click=move |_|navigate("instances")>{move||t("实例列表","Instance list")}</button><button class="xcss-button" aria-pressed=move||location.get().starts_with("details").to_string() disabled=move||selected.get().is_empty() on:click=move |_|navigate(&format!("details/{}",enc(&selected.get_untracked())))>{move||t("详细信息","Details")}</button><button class="xcss-button" aria-pressed=move||location.get().starts_with("logs").to_string() on:click=move |_|navigate(&if selected.get_untracked().is_empty(){"logs".into()}else{format!("logs/{}",enc(&selected.get_untracked()))})>{move||t("日志","Logs")}</button></xcss_web::components::HeaderNavigation>}.into_any()
+    View::new({
+        #[allow(unreachable_code)]
+        #[allow(unused_mut)]
+        #[allow(clippy::let_and_return, clippy::let_unit_value, clippy::unit_arg)]
+        component_view(
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            &xcss_web::components::HeaderNavigation,
+            {
+                let mut props = component_props_builder(&xcss_web::components::HeaderNavigation)
+                    .children({
+                        ::leptos::children::ToChildren::to_children(move || {
+                            (
+                                leptos::html::button()
+                                    .child(
+                                        #[allow(unused_braces)]
+                                        {
+                                            IntoRender::into_render({
+                                                move || t("实例列表", "Instance list")
+                                            })
+                                        },
+                                    )
+                                    .class("xcss-button")
+                                    .aria_pressed(
+                                        ::leptos::prelude::IntoAttributeValue::into_attribute_value(
+                                            move || {
+                                                (!location.get().starts_with("details")
+                                                    && !location.get().starts_with("logs")
+                                                    && location.get() != "account")
+                                                    .to_string()
+                                            },
+                                        ),
+                                    )
+                                    .on(leptos::ev::click, move |_| navigate("instances")),
+                                leptos::html::button()
+                                    .child(
+                                        #[allow(unused_braces)]
+                                        {
+                                            IntoRender::into_render({
+                                                move || t("详细信息", "Details")
+                                            })
+                                        },
+                                    )
+                                    .class("xcss-button")
+                                    .aria_pressed(
+                                        ::leptos::prelude::IntoAttributeValue::into_attribute_value(
+                                            move || {
+                                                location.get().starts_with("details").to_string()
+                                            },
+                                        ),
+                                    )
+                                    .disabled(
+                                        ::leptos::prelude::IntoAttributeValue::into_attribute_value(
+                                            move || selected.get().is_empty(),
+                                        ),
+                                    )
+                                    .on(leptos::ev::click, move |_| {
+                                        navigate(&format!(
+                                            "details/{}",
+                                            enc(&selected.get_untracked())
+                                        ))
+                                    }),
+                                leptos::html::button()
+                                    .child(
+                                        #[allow(unused_braces)]
+                                        {
+                                            IntoRender::into_render({ move || t("日志", "Logs") })
+                                        },
+                                    )
+                                    .class("xcss-button")
+                                    .aria_pressed(
+                                        ::leptos::prelude::IntoAttributeValue::into_attribute_value(
+                                            move || location.get().starts_with("logs").to_string(),
+                                        ),
+                                    )
+                                    .on(leptos::ev::click, move |_| {
+                                        navigate(&if selected.get_untracked().is_empty() {
+                                            "logs".into()
+                                        } else {
+                                            format!("logs/{}", enc(&selected.get_untracked()))
+                                        })
+                                    }),
+                            )
+                        })
+                    })
+                    .build();
+                props
+            },
+        )
+    })
+    .into_any()
 }
 #[component]
 pub fn Confirm(
@@ -269,10 +611,112 @@ pub fn Confirm(
     #[prop(default=t("操作未能确认，请刷新核对后再操作。", "The operation could not be confirmed. Refresh and verify before another action."))]
     error_message: String,
 ) -> impl IntoView {
-    view! {<xcss_web::components::Dialog title close=Callback::new(move |()| { if !busy.get_untracked() { close.run(()); } })>
-        <p>{description.clone()}</p><Failure error message=error_message.clone()/>
-        <div class="xcss-actions"><button class="xcss-button" type="button" data-xcss-initial-focus disabled=move||busy.get() on:click=move |_|close.run(())>{t("取消","Cancel")}</button><button class="xcss-button xcss-danger" type="button" disabled=move||busy.get() on:click=move |_|confirm.run(())>{move||if busy.get(){t("正在处理…","Working…")}else{t("确认","Confirm")}}</button></div>
-    </xcss_web::components::Dialog>}
+    View::new({
+        #[allow(unreachable_code)]
+        #[allow(unused_mut)]
+        #[allow(clippy::let_and_return, clippy::let_unit_value, clippy::unit_arg)]
+        component_view(
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            &xcss_web::components::Dialog,
+            {
+                let mut props = component_props_builder(
+                    &xcss_web::components::Dialog,
+                )
+                .title(#[allow(unused_braces)] { title })
+                .close(
+                    #[allow(unused_braces)]
+                    {
+                        Callback::new(move |()| {
+                            if !busy.get_untracked() {
+                                close.run(());
+                            }
+                        })
+                    },
+                )
+                .children({
+                    ::leptos::children::ToChildren::to_children(move || (
+                        leptos::html::p()
+                            .child(
+                                #[allow(unused_braces)]
+                                {
+                                    IntoRender::into_render({
+                                        description.clone()
+                                    })
+                                },
+                            ),
+                        {
+                            #[allow(unreachable_code)] #[allow(unused_mut)]
+                            #[allow(clippy::let_and_return, clippy::let_unit_value, clippy::unit_arg)]
+                            component_view(
+                                #[allow(clippy::needless_borrows_for_generic_args)]
+                                &Failure,
+                                {
+                                    let mut props = component_props_builder(
+                                            &Failure,
+                                        )
+                                        .error(#[allow(unused_braces)] { error })
+                                        .message(#[allow(unused_braces)] { error_message.clone() })
+                                        .build();
+                                    props
+                                },
+                            )
+                        },
+                        leptos::html::div()
+                            .child((
+                                leptos::html::button()
+                                    .child(
+                                        #[allow(unused_braces)]
+                                        {
+                                            IntoRender::into_render({
+                                                t("取消", "Cancel")
+                                            })
+                                        },
+                                    )
+                                    .class("xcss-button")
+                                    .r#type("button")
+                                    .attr("data-xcss-initial-focus", true)
+                                    .disabled(
+                                        ::leptos::prelude::IntoAttributeValue::into_attribute_value(move ||
+                                        busy.get()),
+                                    )
+                                    .on(
+                                        leptos::ev::click,
+                                        move |_| close.run(()),
+                                    ),
+                                leptos::html::button()
+                                    .child(
+                                        #[allow(unused_braces)]
+                                        {
+                                            IntoRender::into_render({
+                                                move || {
+                                                    if busy.get() {
+                                                        t("正在处理…", "Working…")
+                                                    } else {
+                                                        t("确认", "Confirm")
+                                                    }
+                                                }
+                                            })
+                                        },
+                                    )
+                                    .class("xcss-button xcss-danger")
+                                    .r#type("button")
+                                    .disabled(
+                                        ::leptos::prelude::IntoAttributeValue::into_attribute_value(move ||
+                                        busy.get()),
+                                    )
+                                    .on(
+                                        leptos::ev::click,
+                                        move |_| confirm.run(()),
+                                    ),
+                            ))
+                            .class("xcss-actions"),
+                    ))
+                })
+                .build();
+                props
+            },
+        )
+    })
 }
 pub fn date_parts(date: &str) -> [String; 3] {
     let p: Vec<_> = date.split('-').collect();
@@ -383,42 +827,200 @@ pub fn DateRange(
         }
         (s, e, bad, reversed)
     };
-    view! {
-        <div id=id class="xcss-date-range">
-            <div class="xcss-date-range-fields" role="group" aria-label=t("日期范围", "Date range")>
-                {(0..2).map(|endpoint| view! {
-                    <span class="xcss-date-range-endpoint">
-                        {(endpoint == 1).then(|| view! { <span class="xcss-date-range-separator" aria-hidden="true">"-"</span> })}
-                        {(0..3).map(move |field| {
-                            let i = endpoint * 3 + field;
-                            let part = ["year", "month", "day"][field];
-                            let label = [t("年", "Year"), t("月", "Month"), t("日", "Day")][field].clone();
-                            view! {
-                                <span class="xcss-date-range-part">
-                                    {(field > 0).then(|| view! { <span class="xcss-date-range-separator" aria-hidden="true">"/"</span> })}
-                                    <input id=format!("{id}-{}-{part}", if endpoint == 0 { "start" } else { "end" })
-                                        class="xcss-date-range-number" size=if field == 0 { "4" } else { "2" }
-                                        type="text" inputmode="numeric" autocomplete="off" spellcheck="false"
-                                        aria-label=format!("{} {}", if endpoint == 0 { t("开始日期", "Start date") } else { t("结束日期", "End date") }, label)
-                                        maxlength=if field == 0 { "4" } else { "2" }
-                                        prop:value=move || draft.get()[i].clone()
-                                        aria-invalid=move || (editing.get() && validation().2[i]).then_some("true")
-                                        aria-describedby=move || (editing.get() && validation().2.into_iter().any(|b| b)).then(|| format!("{id}-error"))
-                                        on:input=move |ev| { draft.update(|d| d[i] = event_target_value(&ev)); editing.set(true); }
-                                        on:keydown=move |ev| { if ev.key() == "Enter" && !ev.is_composing() { ev.prevent_default(); editing.set(true); let (s, e, bad, _) = validation(); if !bad.into_iter().any(|b| b) { apply.run((s.unwrap(), e.unwrap())); } } }/>
-                                </span>
+    View::new(
+        leptos::html::div()
+            .child((
+                leptos::html::div()
+                    .child(
+                        #[allow(unused_braces)]
+                        {
+                            IntoRender::into_render({
+                                (0..2)
+                                    .map(|endpoint| {
+                                        View::new(
+                                            leptos::html::span()
+                                                .child((
+                                                    IntoRender::into_render({
+                                                        (endpoint == 1).then(|| {
+                                                            View::new(
+                                                                leptos::html::span()
+                                                                    .child(
+                                                                        #[allow(unused_braces)]
+                                                                        {
+                                                                            "-"
+                                                                        },
+                                                                    )
+                                                                    .class(
+                                                                        "xcss-date-range-separator",
+                                                                    )
+                                                                    .aria_hidden("true"),
+                                                            )
+                                                        })
+                                                    }),
+                                                    IntoRender::into_render({
+                                                        (0..3)
+                                                            .map(move |field| {
+                                                                let i = endpoint * 3 + field;
+                                                                let part =
+                                                                    ["year", "month", "day"][field];
+                                                                let label = [
+                                                                    t("年", "Year"),
+                                                                    t("月", "Month"),
+                                                                    t("日", "Day"),
+                                                                ][field]
+                                                                    .clone();
+                                                                View::new(
+    leptos::html::span()
+        .child((
+            IntoRender::into_render({
+                (field > 0)
+                    .then(|| {
+                        View::new(
+    leptos::html::span()
+        .child(#[allow(unused_braces)] { "/" })
+        .class("xcss-date-range-separator")
+        .aria_hidden("true"),
+)
+                    })
+            }),
+            leptos::html::input()
+                .class("xcss-date-range-number")
+                .id(
+                    ::leptos::prelude::IntoAttributeValue::into_attribute_value(
+                        format!(
+                            "{id}-{}-{part}", if endpoint == 0 { "start" } else { "end"
                             }
-                        }).collect_view()}
-                    </span>
-                }).collect_view()}
-            </div>
-            {move || { let (_, _, bad, reversed) = validation(); (editing.get() && bad.into_iter().any(|v| v)).then(|| view! {
-                <p id=format!("{id}-error") class="xcss-date-range-error" role="alert">{if reversed { t("结束日期不能早于开始日期。", "The end date must not precede the start date.") } else { t("请输入有效的年月日。", "Enter a valid year, month and day.") }}</p>
-            }) }}
-        </div>
-    }
+                        ),
+                    ),
+                )
+                .size(
+                    ::leptos::prelude::IntoAttributeValue::into_attribute_value(
+                        if field == 0 { "4" } else { "2" },
+                    ),
+                )
+                .r#type("text")
+                .inputmode("numeric")
+                .autocomplete("off")
+                .spellcheck("false")
+                .aria_label(
+                    ::leptos::prelude::IntoAttributeValue::into_attribute_value(
+                        format!(
+                            "{} {}", if endpoint == 0 { t("开始日期", "Start date")
+                            } else { t("结束日期", "End date") }, label
+                        ),
+                    ),
+                )
+                .maxlength(
+                    ::leptos::prelude::IntoAttributeValue::into_attribute_value(
+                        if field == 0 { "4" } else { "2" },
+                    ),
+                )
+                .prop("value", move || draft.get()[i].clone())
+                .aria_invalid(
+                    ::leptos::prelude::IntoAttributeValue::into_attribute_value(move ||
+                    (editing.get() && validation().2[i]).then_some("true")),
+                )
+                .aria_describedby(
+                    ::leptos::prelude::IntoAttributeValue::into_attribute_value(move ||
+                    {
+                        (editing.get() && validation().2.into_iter().any(|b| b))
+                            .then(|| format!("{id}-error"))
+                    }),
+                )
+                .on(
+                    leptos::ev::input,
+                    move |ev| {
+                        draft.update(|d| d[i] = event_target_value(&ev));
+                        editing.set(true);
+                    },
+                )
+                .on(
+                    leptos::ev::keydown,
+                    move |ev| {
+                        if ev.key() == "Enter" && !ev.is_composing() {
+                            ev.prevent_default();
+                            editing.set(true);
+                            let (s, e, bad, _) = validation();
+                            if !bad.into_iter().any(|b| b) {
+                                apply.run((s.unwrap(), e.unwrap()));
+                            }
+                        }
+                    },
+                ),
+        ))
+        .class("xcss-date-range-part"),
+)
+                                                            })
+                                                            .collect_view()
+                                                    }),
+                                                ))
+                                                .class("xcss-date-range-endpoint"),
+                                        )
+                                    })
+                                    .collect_view()
+                            })
+                        },
+                    )
+                    .class("xcss-date-range-fields")
+                    .role("group")
+                    .aria_label(::leptos::prelude::IntoAttributeValue::into_attribute_value(
+                        t("日期范围", "Date range"),
+                    )),
+                IntoRender::into_render({
+                    move || {
+                        let (_, _, bad, reversed) = validation();
+                        (editing.get() && bad.into_iter().any(|v| v)).then(|| {
+                            View::new(
+    leptos::html::p()
+        .child(
+            #[allow(unused_braces)]
+            {
+                IntoRender::into_render({
+                    if reversed {
+                        t(
+                            "结束日期不能早于开始日期。",
+                            "The end date must not precede the start date.",
+                        )
+                    } else {
+                        t(
+                            "请输入有效的年月日。",
+                            "Enter a valid year, month and day.",
+                        )
+                    }
+                })
+            },
+        )
+        .class("xcss-date-range-error")
+        .id(
+            ::leptos::prelude::IntoAttributeValue::into_attribute_value(
+                format!("{id}-error"),
+            ),
+        )
+        .role("alert"),
+)
+                        })
+                    }
+                }),
+            ))
+            .class("xcss-date-range")
+            .id(::leptos::prelude::IntoAttributeValue::into_attribute_value(
+                id,
+            )),
+    )
 }
 
+fn response_error(error: ApiError) -> ApiError {
+    if error.status == 0
+        && matches!(
+            error.code.as_str(),
+            "invalid_typed_response_shape" | "invalid_response_contract"
+        )
+    {
+        invalid_response()
+    } else {
+        error
+    }
+}
 fn invalid_response() -> ApiError {
     ApiError {
         status: 502,
@@ -438,5 +1040,25 @@ fn valid_mutation_response(path: &str, method: &str, value: &Value) -> bool {
         value.is_null()
     } else {
         crate::contracts::validate(path, value)
+    }
+}
+
+#[cfg(test)]
+mod typed_response_tests {
+    use super::*;
+    #[test]
+    fn transport_errors_are_not_reclassified_as_contract_errors() {
+        let old_transport = ApiError::local("invalid_response_shape");
+        assert_eq!(response_error(old_transport.clone()), old_transport);
+        let abort = ApiError::local("request_aborted");
+        assert_eq!(response_error(abort.clone()), abort);
+        let mut unauthorized = ApiError::local("auth.session_required");
+        unauthorized.status = 401;
+        unauthorized.request_id = Some("request-1".into());
+        assert_eq!(response_error(unauthorized.clone()), unauthorized);
+        let invalid = response_error(ApiError::local("invalid_typed_response_shape"));
+        assert_eq!(invalid.status, 502);
+        assert_eq!(invalid.code, "platform.invalid_response");
+        assert!(!invalid.retryable);
     }
 }

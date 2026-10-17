@@ -4,6 +4,7 @@ import { existsSync, readFileSync } from "node:fs";
 
 import { assertXcssWebToolchain } from "@xcss/web/web-toolchain";
 import manifest from "../package.json" with { type: "json" };
+assert.deepEqual(manifest.dependencies ?? {}, {});
 
 const lock = JSON.parse(
   readFileSync(new URL("../package-lock.json", import.meta.url), "utf8"),
@@ -20,8 +21,8 @@ assert.match(nodeVersion, /^26\.7\.0\n?$/);
 assertXcssWebToolchain(manifest, nodeVersion);
 for (const dependency of xcssPackages) {
   const expected = "https://github.com/isarmg/xcss/releases/download/v1.0.0/xcss-web-1.0.0.tgz";
-  assert.equal(manifest.dependencies?.[dependency], expected);
-  assert.equal(lock.packages?.[""]?.dependencies?.[dependency], expected);
+  assert.equal(manifest.devDependencies?.[dependency], expected);
+  assert.equal(lock.packages?.[""]?.devDependencies?.[dependency], expected);
 
   const locked = lock.packages?.[`node_modules/${dependency}`];
   assert.equal(locked?.link, undefined);

@@ -1,0 +1,17 @@
+[web]
+kind = "spa"
+entry = "src/main-leptos.js"
+dist = "web/dist"
+base = "/"
+
+[web.proxies]
+"/api" = "http://127.0.0.1:18104"
+
+[aliases]
+"@xcss/web/" = "vendor/xcss/"
+
+# Preserve original notices in standalone dist as well as release receipts.
+[web.copies]
+"assets/LICENSE-leptos-MIT.txt" = "leptos/vendor/xcss-web/vendor/leptos-csr/LICENSE"
+"assets/LICENSE-leptos-macro-MIT.txt" = "leptos/vendor/xcss-web/vendor/leptos-macro-csr/LICENSE"
+"assets/LICENSE-xcss-Apache-2.0.txt" = "vendor/xcss/LICENSE"

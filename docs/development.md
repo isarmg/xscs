@@ -1,6 +1,6 @@
 # 开发与验证
 
-当前 Rust 1.99、Node 26.7。先执行 `npm ci --prefix web --ignore-scripts`，再运行 `npm --prefix web run build` 生成嵌入资源。Web 验收为 `npm --prefix web run test:browser`，使用 Chromium/Firefox 与管理 API 替身。
+当前使用 Rust 1.99。在产品根目录执行 `cargo +1.99.0 run --quiet --locked --manifest-path tools/web-build/Cargo.toml -- build --product-root .` 生成嵌入资源；详见 [Rust 原生 Web 构建](rust-native-web.md)。浏览器验收另需 Node 26.7 与锁定 devDependencies，再运行 `npm --prefix web run test:browser`，使用 Chromium/Firefox 与管理 API 替身。
 
 Rust 检查为 `cargo fmt --all -- --check`、`cargo test --locked --all-targets`、`cargo clippy --locked --all-targets -- -D warnings`。测试操作隔离数据、端口和进程。
 

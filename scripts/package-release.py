@@ -142,9 +142,8 @@ def main()->None:
         if not target.is_absolute():raise ValueError("CARGO_TARGET_DIR must be absolute")
         env=build_environment()
         env.update({"CARGO_TARGET_DIR":str(target),"XSSI_BUILD_METADATA_DIR":str(metadata),f"{PRODUCT.upper()}_SOURCE_REVISION":revision,"XCSS_WEB_DIST":str(web),"XSSI_BUILD_TOOLS_DIR":str(installer),"XSSI_FRONTEND_METADATA_FILE":str(metadata/"frontend.json")})
-        run(["npm","ci","--prefix",str(source/"web")],cwd=source,env=env)
-        builder=source/"web/node_modules/.bin/xcss-build-server"
-        args=[str(builder),"--config",str(source/"xcss-web-build.json"),"--mode","release","--no-install","--dist",str(web)]
+        builder=["cargo","+1.99.0","run","--quiet","--locked","--manifest-path",str(source/"tools/web-build/Cargo.toml"),"--","server","--product-root",str(source)]
+        args=[*builder,"--config",str(source/"xcss-web-build.json"),"--mode","release","--dist",str(web)]
         run([*args,"--web-only"],cwd=source,env=env)
         run([*args,"--rust-only","--source-revision",revision],cwd=source,env=env)
         stage_verified_server(target/TARGET/"release"/PRODUCT,stage/"bin"/PRODUCT,revision)

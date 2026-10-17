@@ -27,8 +27,6 @@ jobs:
         with:
           node-version: 26.7.0
           check-latest: false
-      - name: Install locked Web dependencies
-        run: npm ci --prefix web
       - name: Install pinned browser Rust tools
         run: |
           rustup toolchain install 1.99.0 --profile minimal --component rustfmt,clippy --target wasm32-unknown-unknown

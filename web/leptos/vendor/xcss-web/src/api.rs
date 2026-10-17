@@ -9,7 +9,7 @@ use futures::{
 use gloo_events::EventListener;
 use gloo_timers::callback::Timeout;
 use js_sys::{Reflect, Uint8Array};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::{Value, json};
 use std::{
     cell::{Cell, RefCell},
@@ -216,6 +216,59 @@ fn resolve(path: &str) -> Result<String, ApiError> {
         return Err(ApiError::local("invalid_api_path"));
     }
     Ok(url.href())
+}
+
+/// Serialize a typed request without silently replacing serialization failures with null.
+pub fn encode_json_body<T: Serialize + ?Sized>(body: &T) -> Result<Value, ApiError> {
+    serde_json::to_value(body).map_err(|_| ApiError::local("body_serialization_failed"))
+}
+
+/// Decode a successful JSON response. Nullable or empty responses require `Option<T>` or `()`.
+pub fn decode_response<T: DeserializeOwned>(value: Value) -> Result<T, ApiError> {
+    serde_json::from_value(value).map_err(|_| ApiError::local("invalid_typed_response_shape"))
+}
+
+/// Keep product-specific bounds, revisions and path binding before constructing a DTO.
+pub fn decode_validated_response<T: DeserializeOwned>(
+    value: Value,
+    validate: impl FnOnce(&Value) -> bool,
+) -> Result<T, ApiError> {
+    if !validate(&value) {
+        return Err(ApiError::local("invalid_response_contract"));
+    }
+    decode_response(value)
+}
+
+pub async fn request_typed<T: DeserializeOwned>(
+    path: &str,
+    method: &str,
+    body: Option<Value>,
+) -> Result<T, ApiError> {
+    request_typed_with_options(path, method, body, RequestOptions::default()).await
+}
+
+/// Same bounded transport, cancellation and session handling as `request_with_options`.
+pub async fn request_typed_with_options<T: DeserializeOwned>(
+    path: &str,
+    method: &str,
+    body: Option<Value>,
+    options: RequestOptions,
+) -> Result<T, ApiError> {
+    decode_response(request_with_options(path, method, body, options).await?)
+}
+
+/// Deserialize only after the existing runtime response contract has accepted the wire value.
+pub async fn request_typed_validated_with_options<T: DeserializeOwned>(
+    path: &str,
+    method: &str,
+    body: Option<Value>,
+    options: RequestOptions,
+    validate: impl FnOnce(&Value) -> bool,
+) -> Result<T, ApiError> {
+    decode_validated_response(
+        request_with_options(path, method, body, options).await?,
+        validate,
+    )
 }
 
 pub async fn request(path: &str, method: &str, body: Option<Value>) -> Result<Value, ApiError> {
@@ -706,6 +759,42 @@ pub async fn update_account(input: Value) -> Result<(), ApiError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn typed_decode_preserves_large_integers_and_null_contracts() {
+        #[derive(Deserialize, Debug, PartialEq)]
+        struct Payload {
+            sequence: i64,
+            optional: Option<String>,
+        }
+        let value = json!({"sequence": 9_007_199_254_740_993i64, "optional": null});
+        let decoded: Payload = decode_response(value).unwrap();
+        assert_eq!(decoded.sequence, 9_007_199_254_740_993);
+        assert_eq!(decoded.optional, None);
+        assert_eq!(
+            decode_response::<Payload>(Value::Null).unwrap_err().code,
+            "invalid_typed_response_shape"
+        );
+        assert_eq!(decode_response::<()>(Value::Null).unwrap(), ());
+        assert!(decode_validated_response::<Payload>(json!({"sequence": 1}), |_| false).is_err());
+        assert!(decode_response::<Payload>(json!({"sequence":"1"})).is_err());
+    }
+    #[test]
+    fn typed_body_serialization_errors_are_explicit() {
+        struct Invalid;
+        impl Serialize for Invalid {
+            fn serialize<S: serde::Serializer>(&self, _: S) -> Result<S::Ok, S::Error> {
+                Err(serde::ser::Error::custom("intentional failure"))
+            }
+        }
+        assert_eq!(
+            encode_json_body(&Invalid).unwrap_err().code,
+            "body_serialization_failed"
+        );
+        assert_eq!(
+            encode_json_body(&json!({"revision":"a"})).unwrap(),
+            json!({"revision":"a"})
+        );
+    }
     #[test]
     fn api_boundary_rejects_cross_origin_and_fragment_paths() {
         for path in [

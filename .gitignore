@@ -17,3 +17,5 @@ __pycache__/
 # Generated Leptos/WASM browser artifacts
 /web/pkg/
 /web/leptos/target/
+
+/tools/web-build/target/

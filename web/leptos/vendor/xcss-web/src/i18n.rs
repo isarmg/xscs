@@ -39,22 +39,20 @@ fn resolve() -> String {
     let Some(window) = web_sys::window() else {
         return "en".into();
     };
-    if let Ok(url) = Url::new(&window.location().href().unwrap_or_default()) {
-        if let Some(value) = url
+    if let Ok(url) = Url::new(&window.location().href().unwrap_or_default())
+        && let Some(value) = url
             .search_params()
             .get("lang")
             .as_deref()
             .and_then(supported)
-        {
-            return value.into();
-        }
+    {
+        return value.into();
     }
-    if let Ok(Some(storage)) = window.local_storage() {
-        if let Ok(Some(value)) = storage.get_item("sarmg.admin.language") {
-            if let Some(value) = supported(&value) {
-                return value.into();
-            }
-        }
+    if let Ok(Some(storage)) = window.local_storage()
+        && let Ok(Some(value)) = storage.get_item("sarmg.admin.language")
+        && let Some(value) = supported(&value)
+    {
+        return value.into();
     }
     for value in window
         .navigator()

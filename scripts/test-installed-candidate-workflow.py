@@ -31,8 +31,8 @@ class CandidateWorkflow(unittest.TestCase):
                 self.assertIn(command, SOURCE)
 
     def test_one_real_release_build_feeds_pinned_producer_and_shared_lifecycle(self):
-        self.assertEqual(INSTALLED.count('xcss-build-server --config'), 1)
-        self.assertIn('--mode release --no-install --source-revision "$GITHUB_SHA"', INSTALLED)
+        self.assertEqual(INSTALLED.count('tools/web-build/Cargo.toml -- server --product-root . --config'), 1)
+        self.assertIn('--mode release --source-revision "$GITHUB_SHA"', INSTALLED)
         self.assertIn('XSSI_BUILD_METADATA_DIR: ${{ runner.temp }}/install-metadata', INSTALLED)
         self.assertIn('XSSI_FRONTEND_METADATA_FILE: ${{ runner.temp }}/install-metadata/frontend.json', INSTALLED)
         self.assertIn('scripts/package-installed-candidate.sh', INSTALLED)
@@ -48,6 +48,8 @@ class CandidateWorkflow(unittest.TestCase):
         for lane, cache in ((SOURCE, 'source_cache'), (INSTALLED, 'release_cache')):
             self.assertIn('rust-1.99.0', lane)
             self.assertIn("'Cargo.lock'", lane)
+            self.assertIn("'tools/web-build/Cargo.lock'", lane)
+            self.assertIn("'web/rust-web.toml'", lane)
             self.assertIn("'config/xssi.lock'", lane)
             self.assertIn('fingerprint', lane)
             self.assertIn('cargo clean --package xscs', lane)

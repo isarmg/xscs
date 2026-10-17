@@ -9,7 +9,7 @@ description = "Portable Leptos browser components and administrator HTTP contrac
 [workspace]
 
 [dependencies]
-leptos = { version = "=0.8.19", features = ["csr"] }
+leptos = { version = "=0.8.19", default-features = false, features = ["csr"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 wasm-bindgen = "=0.2.129"
@@ -45,3 +45,8 @@ web-sys = { version = "=0.3.106", features = [
 
 [lints.rust]
 unsafe_code = "forbid"
+
+# Integrated CSR runtime and host procedural macros; browser-only.
+[patch.crates-io]
+leptos = { path = "vendor/leptos-csr" }
+leptos_macro = { path = "vendor/leptos-macro-csr" }

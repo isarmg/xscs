@@ -7,22 +7,20 @@
     "node": ">=26.7.0 <27"
   },
   "scripts": {
-    "dev": "python3 ../scripts/build-leptos.py build --debug && vite",
+    "dev": "cargo +1.99.0 run --quiet --locked --manifest-path ../tools/web-build/Cargo.toml -- serve --product-root .. --debug --bind 127.0.0.1:5173",
     "check:xcss": "node scripts/check-xcss-toolchain.mjs",
-    "build": "npm run check:xcss && python3 ../scripts/build-leptos.py build && vite build",
-    "preview": "vite preview",
+    "build": "cargo +1.99.0 run --quiet --locked --manifest-path ../tools/web-build/Cargo.toml -- build --product-root ..",
+    "preview": "cargo +1.99.0 run --quiet --locked --manifest-path ../tools/web-build/Cargo.toml -- preview --product-root .. --bind 127.0.0.1:4173",
     "test:browser": "npm run build && node tests/browser-acceptance.mjs",
-    "build:leptos": "npm run build",
-    "check:leptos": "python3 ../scripts/build-leptos.py check",
-    "test:leptos": "python3 ../scripts/build-leptos.py test",
+    "build:leptos": "cargo +1.99.0 run --quiet --locked --manifest-path ../tools/web-build/Cargo.toml -- build --product-root ..",
+    "check:leptos": "cargo +1.99.0 run --quiet --locked --manifest-path ../tools/web-build/Cargo.toml -- check --product-root ..",
+    "test:leptos": "cargo +1.99.0 run --quiet --locked --manifest-path ../tools/web-build/Cargo.toml -- test --product-root ..",
     "test:browser:leptos": "npm run test:browser"
-  },
-  "dependencies": {
-    "@xcss/web": "https://github.com/isarmg/xcss/releases/download/v1.0.0/xcss-web-1.0.0.tgz"
   },
   "devDependencies": {
     "@axe-core/playwright": "4.13.0",
     "@playwright/test": "1.63.0",
+    "@xcss/web": "https://github.com/isarmg/xcss/releases/download/v1.0.0/xcss-web-1.0.0.tgz",
     "vite": "8.3.3"
   }
 }

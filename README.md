@@ -14,3 +14,12 @@
 - [原生集成与验收条件](docs/rustdesk-integration.md)
 
 前端已迁移到 Leptos CSR，Axum 后端保持现有接口。构建与验收见 [Leptos 管理界面](docs/leptos-web.md)。
+
+
+生产前端构建使用仓库内 Rust 工具，无需安装 npm 依赖。准备 Rust 1.99.0、wasm32-unknown-unknown target 和 wasm-bindgen-cli 0.2.129 后，在产品根目录执行：
+
+```sh
+cargo +1.99.0 run --quiet --locked --manifest-path tools/web-build/Cargo.toml -- build --product-root .
+```
+
+开发监听、Axum 集成和测试边界见 [Rust 原生 Web 构建与测试](docs/rust-native-web.md)。Node/Playwright/Vite 仅用于浏览器验收与历史 TypeScript/React 对照测试。

@@ -1,0 +1,23 @@
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -11,7 +11,9 @@
+ use component::DummyModel;
+ use proc_macro::TokenStream;
+ use proc_macro2::{Span, TokenTree};
+-use quote::{quote, ToTokens};
++use quote::quote;
++#[cfg(feature = "full")]
++use quote::ToTokens;
+ use std::str::FromStr;
+ use syn::{spanned::Spanned, token::Pub, Visibility};
+ 
+--- a/src/view/mod.rs
++++ b/src/view/mod.rs
+@@ -1947,6 +1947,7 @@
+     }
+ }
+ 
++#[cfg(debug_assertions)]
+ pub(crate) fn ident_from_tag_name(
+     tag_name: &NodeName,
+     errors: &mut Errors,

@@ -10,7 +10,7 @@ exclude = ["vendor/xcss-web"]
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-leptos = { version = "=0.8.19", features = ["csr"] }
+leptos = { version = "=0.8.19", default-features = false, features = ["csr"] }
 xcss-web = { path = "vendor/xcss-web" }
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
@@ -27,3 +27,8 @@ lto = true
 codegen-units = 1
 panic = "abort"
 strip = true
+
+# The integrated xcss snapshot owns both CSR runtime and host macros.
+[patch.crates-io]
+leptos = { path = "vendor/xcss-web/vendor/leptos-csr" }
+leptos_macro = { path = "vendor/xcss-web/vendor/leptos-macro-csr" }
