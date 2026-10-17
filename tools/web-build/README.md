@@ -79,7 +79,7 @@ css_output = "dist/platform.css"
 - `web/pkg/leptos-build.json` 与 `dist/assets/leptos-build.json` 保留 `format/rust/wasm_bindgen/package/profile/files/browser_inputs/shared_inputs/builder_sha256/cargo_packages` 字段，同时增加资源、其他 path/patch 依赖、工具源码清单。工具的运行时源码还会对比编译到执行文件中的源码字节，拒绝使用过期工具伪造构建来源。
 - 所有 `web/vendor/<package>/SOURCE.json` 精确校验目录文件名和 SHA-256；增加未登记文件、改动实现或许可证都会失败。构建前后再次比较整套源代码/lock/vendor/资源清单，即使构建过程中同时更新 SOURCE.json 也不能绕过漂移检测。
 - 验证通过后再替换生成的 pkg/dist。普通失败会恢复上一对输出；不宣称跨两个目录的重命名具备断电原子性。构建不可与另一个指向相同输出的构建并发执行。
-- `assets/vendor-sources.json` 保存完整的 browser vendor 来源。设置 `XSSI_BUILD_TOOLS_DIR` 与 `XSSI_FRONTEND_METADATA_FILE` 时生成既有 `format_version=1/distribution/modules/outputs` runtime receipt，模块 SHA 和输出 SHA 均绑定本次实际字节。两个环境变量需同时提供、绝对路径，receipt 必须创建为新文件。发布器必须理解 vendor 来源；旧版只识别 `node_modules` 的发布器需更新后使用，不能把 vendor 第三方组件误认成本地源码。
+- `assets/vendor-sources.json` 保存完整的 browser vendor 来源。设置 `XSSI_BUILD_TOOLS_DIR` 与 `XSSI_FRONTEND_METADATA_FILE` 时生成既有 runtime receipt，字段为 `format_version=1`、`distribution`、`modules`、`outputs`，模块 SHA 和输出 SHA 均绑定本次实际字节。两个环境变量需同时提供、绝对路径，receipt 必须创建为新文件。发布器必须理解 vendor 来源；旧版只识别 `node_modules` 的发布器需更新后使用，不能把 vendor 第三方组件误认成本地源码。
 - 输入/已有输出拒绝符号链接、硬链接、特殊文件，单文件读取上限 32 MiB，目录枚举上限 16,384 文件。不跟随 `target/.git/__pycache__/.pytest_cache`。
 
 存在已审查的大型 public 媒体时，可在 `[web]` 明确设置 `public_assets_manifest = "public-assets.json"`，并在 `web/public-assets.json` 登记 **全部** public 文件，包括 README、文本和代码：
