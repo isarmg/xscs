@@ -34,7 +34,7 @@ http-body-util = { version = "0.1.5" }
 rand = { version = "0.10.3" }
 reqwest = { version = "0.13.5", default-features = false, features = ["json", "rustls"] }
 rustix = { version = "1.1.5", features = ["fs", "process"] }
-xcss = { git = "https://github.com/isarmg/xcss.git", rev = "b34b3861e15edd2b1348e7d03b9c9a93e97d6521", version = "=1.0.0", features = ["tracing"] }
+xcss = { git = "https://github.com/isarmg/xcss.git", rev = "6d285cd1ba4707ed2350123d7b50dfeacfb7a4ac", version = "=1.0.0", features = ["tracing"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = { version = "1.0.151" }
 sha2 = { version = "0.11.0" }

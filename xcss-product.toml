@@ -4,13 +4,13 @@ product_id = "xscs"
 [foundation]
 platform_generation = 1
 version = "1.0.0"
-git_rev = "b34b3861e15edd2b1348e7d03b9c9a93e97d6521"
+git_rev = "6d285cd1ba4707ed2350123d7b50dfeacfb7a4ac"
 
 [[components]]
 id = "server"
 profile = "server-control-plane"
 http_adapter = "axum"
-web_profile = "web-react-admin"
+web_profile = "web-csr-admin"
 capabilities = ["embedded-web",
   "platform-sqlite",
   "admin-persistent",
