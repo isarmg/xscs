@@ -12,7 +12,7 @@ cargo +1.99.0 run --quiet --locked --manifest-path tools/web-build/Cargo.toml --
 
 需要 Rust 1.99.0、wasm32-unknown-unknown target 和 wasm-bindgen-cli 0.2.129。默认输出 `web/dist`；`--dist` / `XCSS_WEB_DIST` 用于隔离验收构建。`serve` 监听 Rust/资源文件变化；`preview` 只提供已有资源，不重新构建。Cargo 缓存齐备时可显式传 `--offline`，默认允许获取锁定依赖。
 
-package.json 的 build/dev/check/test Rust 入口只是这些命令的便利别名。Node、Playwright、Vite 和少量旧 JS 库只保留在 devDependencies，供浏览器验收与历史 TypeScript/React 对照测试使用；生产构建不读取 node_modules。Vite 的 transformWithOxc 历史测试继续执行，未用新的断言替代原断言。
+package.json 的 build/dev/check/test 入口调用同一套 Rust 命令。Node/Playwright 只用于当前真实浏览器验收，已删除退役的 Vite 配置、插件及其编译依赖；生产构建不读取 node_modules。历史 React 夹具不再参与默认测试，现行行为由 Rust 单测和实际 WASM 浏览器测试验证。
 
 `tools/web-build/test-preview.mjs` 是测试专用适配器：浏览器脚本仍通过 Node 执行，但 HTTP 资源由 Rust CLI `preview` 提供。测试默认申请端口 0，读取 listening JSON 后返回实际端口，并在清理时结束 Rust 子进程。可设置 `XCSS_WEB_BUILD_BIN` 复用预编译工具，避免每个测试重复启动 Cargo。
 

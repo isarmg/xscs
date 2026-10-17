@@ -40,6 +40,6 @@ npm run test:browser --prefix web
 
 后端保留 Axum，并对浏览器资源作针对性优化：构建时生成 `.wasm.gz`，运行时按 `Accept-Encoding` 协商，返回 `application/wasm`、`Content-Encoding: gzip` 和 `Vary: Accept-Encoding`。压缩与原始表示使用各自的强 ETag；HEAD、304 及缺失压缩文件回退保留原资源服务语义。HTML 预加载 WASM，让下载提前开始。沿用原有缓存策略，未以文件名猜测是否可永久缓存。
 
-压缩适配只用于静态 WASM，不涉及认证/API 响应。通用实现维护在 `xcss/scripts/xcss-web-assets.rs` 与 `xcss/web/xcss-web-assets.mjs`；`vendor-xcss-web.py --check` 同时验证六个独立仓库中的副本。
+压缩适配只用于静态 WASM，不涉及认证/API 响应。通用协商实现来自固定 xcss crate 的 `xcss::web_assets::wasm::response`，产品不再保存复制的 Rust 模块或 Vite 插件。浏览器快照使用上游显式 `--destination` 导出并核验来源。
 
 CI 安装候选和正式 release 均单独审计 `web/xcss-web/Cargo.lock`，保留原根锁打包审计和 yanked 检查。内嵌 `xcss-web-build.json` 的前端 Rust 依赖清单补充现有 SBOM，当前并未将它合并进远端打包器生成的 CycloneDX 文件。

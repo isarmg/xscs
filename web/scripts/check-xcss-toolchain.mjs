@@ -2,7 +2,6 @@ import {prepareApplicationFonts, startAfterFonts} from "@xcss/web/web-fonts";
 import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 
-import { assertXcssWebToolchain } from "@xcss/web/web-toolchain";
 import manifest from "../package.json" with { type: "json" };
 assert.deepEqual(manifest.dependencies ?? {}, {});
 
@@ -18,7 +17,6 @@ const nodeVersion = readFileSync(
   "utf8",
 );
 assert.match(nodeVersion, /^26\.7\.0\n?$/);
-assertXcssWebToolchain(manifest, nodeVersion);
 for (const dependency of xcssPackages) {
   const expected = "https://github.com/isarmg/xcss/releases/download/v1.0.0/xcss-web-1.0.0.tgz";
   assert.equal(manifest.devDependencies?.[dependency], expected);
@@ -39,7 +37,7 @@ for (const snapshot of ["content-blocks.css", "provenance.json", "verify.mjs"]) 
 assert.equal(typeof prepareApplicationFonts, "function");
 assert.equal(typeof startAfterFonts, "function");
 
-// The default production entry must execute Rust; React remains a reference only.
+// The default production entry must execute Rust; Only the current CSR implementation is maintained.
 const entry = readFileSync(new URL("../src/main-xcss-web.js", import.meta.url), "utf8");
 const index = readFileSync(new URL("../index.html", import.meta.url), "utf8");
 assert.match(index, /src\/main-xcss-web\.js/);
