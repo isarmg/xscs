@@ -34,6 +34,33 @@ pub fn start() {
 
 所有组件、宏和运行时类型均通过同一个 `xcss_web` 入口访问，无需依赖内部 core 或 macro crate。
 
+## 启动与失败恢复
+
+应用入口导入本目录的 `startup.css`，并通过 `startup.js` 的 `startApplication` 加载 WASM：
+
+```js
+import "./vendor/xcss-web/startup.css";
+import { startApplication } from "./vendor/xcss-web/startup.js";
+await startApplication(async () => {
+  const { default: initialize } = await import("./pkg/application.js");
+  await initialize();
+});
+```
+
+Rust `mount` 只在两种字重均加载、解码完成且视图成功挂载后报告就绪。
+资源请求失败、WASM 无效、启动异常或 30 秒超时会显示可访问的错误和重新加载按钮，
+不会自动刷新、循环重试或以系统字体渲染业务界面。失败提示自身使用系统字体，
+即使应用字体不可用也能阅读；明确重载后重新开始启动。超时后的迟到结果不能覆盖错误页。
+
+独立真实 WASM 浏览器验证：
+
+```sh
+node web/xcss-web/tests/startup-browser.mjs
+```
+
+需要 Rust 1.99.0、WASM target、wasm-bindgen 0.2.129 及已安装的 Chromium/Firefox；
+`CARGO_TARGET_DIR` 与 `WASM_BINDGEN` 可指定本地缓存和固定工具。
+
 ## 来源与许可证
 
 框架实现基于 Leptos 0.8.19 裁剪并整合。原 MIT 许可证、版权通知及完整来源和修改记录

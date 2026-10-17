@@ -15,7 +15,8 @@
     "build:xcss-web": "cargo +1.99.0 run --quiet --locked --manifest-path ../tools/web-build/Cargo.toml -- build --product-root ..",
     "check:xcss-web": "cargo +1.99.0 run --quiet --locked --manifest-path ../tools/web-build/Cargo.toml -- check --product-root ..",
     "test:xcss-web": "cargo +1.99.0 run --quiet --locked --manifest-path ../tools/web-build/Cargo.toml -- test --product-root ..",
-    "test:browser:xcss-web": "npm run test:browser"
+    "test:browser:xcss-web": "npm run test:browser",
+    "test:startup": "node tests/startup-failure.mjs"
   },
   "devDependencies": {
     "@axe-core/playwright": "4.13.0",
