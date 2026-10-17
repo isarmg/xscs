@@ -9,7 +9,7 @@ lto = "thin"
 strip = "symbols"
 
 [workspace.package]
-version = "2.0.0-dev"
+version = "2.0.0"
 edition = "2024"
 rust-version = "1.99"
 authors = ["sarmg <isarmg@163.com>"]
@@ -40,7 +40,7 @@ serde_json = { version = "1.0.151" }
 sha2 = { version = "0.11.0" }
 sqlx = { version = "=0.9.0", default-features = false, features = ["chrono", "derive", "json", "macros", "sqlite-bundled", "runtime-tokio", "uuid"] }
 subtle = { version = "=2.6.1" }
-xscs-protocol = { path = "crates/protocol", version = "=2.0.0-dev" }
+xscs-protocol = { path = "crates/protocol", version = "=2.0.0" }
 tempfile = { version = "3.27.0" }
 thiserror = { version = "2.0.21" }
 tokio = { version = "1.53.2", features = ["macros", "net", "rt-multi-thread", "signal", "sync", "time"] }

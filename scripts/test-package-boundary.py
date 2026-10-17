@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 import importlib.util
 import json
+import re
+import tomllib
 from pathlib import Path
 import subprocess
 import tempfile
@@ -13,6 +15,25 @@ module=importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
 
 class PackageBoundaryTests(unittest.TestCase):
+    def test_release_versions_and_schema_identity_remain_consistent(self):
+        root=SCRIPT.parents[1]
+        workspace=tomllib.loads((root/"Cargo.toml").read_text())
+        version=workspace["workspace"]["package"]["version"]
+        self.assertRegex(version,r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$")
+        self.assertEqual(workspace["workspace"]["dependencies"]["xscs-protocol"]["version"],"="+version)
+        self.assertEqual(tomllib.loads((root/"crates/protocol/Cargo.toml").read_text())["package"]["version"],version)
+        packages=tomllib.loads((root/"Cargo.lock").read_text())["package"]
+        for name in ("xscs","xscs-protocol"):
+            self.assertEqual([item["version"] for item in packages if item["name"]==name],[version])
+        release=json.loads((root/"release.json").read_text())
+        web=json.loads((root/"web/package.json").read_text())
+        lock=json.loads((root/"web/package-lock.json").read_text())
+        for actual in (release["version"],web["version"],lock["version"],lock["packages"][""]["version"]):
+            self.assertEqual(actual,version)
+        schema=(root/"crates/server/src/database_definition.rs").read_text()
+        self.assertEqual(release["schema_revision"],int(re.search(r"SCHEMA_REVISION: i64 = (\d+);",schema)[1]))
+        self.assertEqual(release["schema_sha256"],re.search(r'SCHEMA_SHA256: &str = "([0-9a-f]{64})";',schema)[1])
+
     def create_source(self,parent:Path)->tuple[Path,str]:
         source=parent/"original";source.mkdir()
         subprocess.run(["git","init","--quiet",str(source)],check=True)

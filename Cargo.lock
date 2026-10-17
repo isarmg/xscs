@@ -3066,7 +3066,7 @@ dependencies = [
 
 [[package]]
 name = "xscs"
-version = "2.0.0-dev"
+version = "2.0.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -3102,7 +3102,7 @@ dependencies = [
 
 [[package]]
 name = "xscs-protocol"
-version = "2.0.0-dev"
+version = "2.0.0"
 dependencies = [
  "hex",
  "schemars",
