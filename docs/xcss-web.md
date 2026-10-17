@@ -28,7 +28,7 @@ npm run build --prefix web
 ```sh
 cargo +1.99.0 run --locked --manifest-path tools/web-build/Cargo.toml -- check --product-root .
 cargo +1.99.0 run --locked --manifest-path tools/web-build/Cargo.toml -- test --product-root .
-python3 -I -B scripts/test-xcss-web-build.py
+cargo +1.99.0 test --locked --manifest-path tools/web-build/Cargo.toml
 npm run test:browser --prefix web
 ```
 
