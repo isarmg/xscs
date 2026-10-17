@@ -437,38 +437,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "xcss-web-core"
-version = "0.8.19"
-dependencies = [
- "any_spawner",
- "cfg-if",
- "either_of",
- "futures",
- "getrandom",
- "leptos_dom",
- "xcss-web-macro",
- "oco_ref",
- "or_poisoned",
- "paste",
- "reactive_graph",
- "rustc-hash",
- "rustc_version",
- "send_wrapper",
- "serde",
- "serde_json",
- "slotmap",
- "tachys",
- "thiserror",
- "throw_error",
- "typed-builder",
- "typed-builder-macro",
- "wasm-bindgen",
- "wasm-bindgen-futures",
- "wasm_split_helpers",
- "web-sys",
-]
-
-[[package]]
 name = "leptos_dom"
 version = "0.8.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -499,25 +467,6 @@ dependencies = [
  "serde",
  "syn 3.0.9",
  "walkdir",
-]
-
-[[package]]
-name = "xcss-web-macro"
-version = "0.8.19"
-dependencies = [
- "attribute-derive",
- "cfg-if",
- "convert_case",
- "convert_case_extras",
- "html-escape",
- "itertools",
- "leptos_hot_reload",
- "prettyplease",
- "proc-macro2",
- "quote",
- "rstml",
- "rustc_version",
- "syn 3.0.9",
 ]
 
 [[package]]
@@ -1103,13 +1052,64 @@ dependencies = [
  "gloo-events",
  "gloo-timers",
  "js-sys",
- "xcss-web-core",
  "send_wrapper",
  "serde",
  "serde_json",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
+ "xcss-web-core",
+]
+
+[[package]]
+name = "xcss-web-core"
+version = "0.8.19"
+dependencies = [
+ "any_spawner",
+ "cfg-if",
+ "either_of",
+ "futures",
+ "getrandom",
+ "leptos_dom",
+ "oco_ref",
+ "or_poisoned",
+ "paste",
+ "reactive_graph",
+ "rustc-hash",
+ "rustc_version",
+ "send_wrapper",
+ "serde",
+ "serde_json",
+ "slotmap",
+ "tachys",
+ "thiserror",
+ "throw_error",
+ "typed-builder",
+ "typed-builder-macro",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "wasm_split_helpers",
+ "web-sys",
+ "xcss-web-macro",
+]
+
+[[package]]
+name = "xcss-web-macro"
+version = "0.8.19"
+dependencies = [
+ "attribute-derive",
+ "cfg-if",
+ "convert_case",
+ "convert_case_extras",
+ "html-escape",
+ "itertools",
+ "leptos_hot_reload",
+ "prettyplease",
+ "proc-macro2",
+ "quote",
+ "rstml",
+ "rustc_version",
+ "syn 3.0.9",
 ]
 
 [[package]]

@@ -244,6 +244,7 @@ pub fn build(options: &Options) -> Result<Value> {
     }
     let csr_graph = graph::resolve(options)?;
     let before = inventory::snapshot(&options.root)?;
+    let mut rust_runtime = graph::runtime(options, &before)?;
     cargo_action(options, "build")?;
     ensure!(
         inventory::snapshot(&options.root)? == before,
@@ -277,12 +278,20 @@ pub fn build(options: &Options) -> Result<Value> {
     let object = metadata
         .as_object_mut()
         .context("Source inventory object")?;
-    object.extend(json!({"format":1,"rust":RUST,"wasm_bindgen":BINDGEN,"package":package,"profile":profile,"files":generated,"asset_builder":"xcss-web-build/1.0.0","csr_graph":csr_graph}).as_object().expect("Constant object").clone());
+    object.extend(json!({"format":1,"rust":RUST,"wasm_bindgen":BINDGEN,"package":package,"profile":profile,"files":generated,"asset_builder":"xcss-web-build/1.0.0","csr_graph":csr_graph,"rust_runtime":rust_runtime.clone()}).as_object().expect("Constant object").clone());
     let mut provenance = serde_json::to_vec(&metadata)?;
     provenance.push(b'\n');
     fs::write(stage_pkg.join("xcss-web-build.json"), &provenance)?;
     let (outputs, mut runtime) =
         assets::Linker::new(&web, &stage_pkg, config).finish(&provenance)?;
+    rust_runtime["outputs"] = json!(
+        outputs
+            .iter()
+            .filter(|(name, _)| name.ends_with(".wasm"))
+            .map(|(name, bytes)| json!({"path":name,"sha256":inventory::sha(bytes)}))
+            .collect::<Vec<_>>()
+    );
+    runtime["rust"] = rust_runtime;
     let final_files = assets::write_outputs(&stage_dist, &outputs)?;
     ensure!(
         inventory::snapshot(&options.root)? == before,
