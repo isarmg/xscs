@@ -1,6 +1,6 @@
 # Rust 原生 Web 构建工具
 
-这个独立 Cargo workspace 为现有 xcss-web CSR 项目生成 Axum 可嵌入的静态资源。生产构建只执行锁定的 Cargo 和 wasm-bindgen；不执行 Node、Vite、Python，不下载 CDN 运行时。现有 React 包与 Playwright 测试仍可独立保留。
+这个独立 Cargo workspace 为现有 xcss-web CSR 项目生成 Axum 可嵌入的静态资源。生产构建只执行锁定的 Cargo 和 wasm-bindgen；不执行 Node、Vite、Python，不下载 CDN 运行时。Node/Playwright 保留为真实 WASM 浏览器测试工具；共享 Web 资源包不包含旧界面和构建运行时。
 
 ```sh
 cargo run --locked --manifest-path tools/web-build/Cargo.toml -- build --product-root . --offline
@@ -12,6 +12,15 @@ cargo run --locked --manifest-path tools/web-build/Cargo.toml -- server --produc
 ```
 
 首次准备需要 Rust `1.99.0`、`wasm32-unknown-unknown` target、wasm-bindgen CLI `0.2.129`，以及两个独立 Cargo.lock 的缓存依赖。`--offline` 控制浏览器 Cargo，工具自身 Cargo 也应加 `--offline`。`WASM_BINDGEN` 可指定已验证版本的 CLI。工具与浏览器分开使用 target：`CARGO_TARGET_DIR` 控制启动工具和原生服务器，`XCSS_WASM_TARGET_DIR` 控制浏览器编译，默认 `<product>/target/xcss-web`。浏览器默认两个编译 job；显式 `CARGO_BUILD_JOBS` 可覆盖。
+
+构建工具的唯一维护来源为 xcss 的 `tools/web-build`。在所选 xcss 源码根目录，将已提交的工具源码、锁文件、测试、说明及原始许可证分发到明确的产品目录：
+
+```sh
+python3 scripts/vendor-xcss-web.py --component builder --destination /absolute/product/tools/web-build
+python3 scripts/vendor-xcss-web.py --component builder --check --destination /absolute/product/tools/web-build
+```
+
+`SOURCE.json` 绑定完整 Git 修订、来源目录和逐文件 SHA-256。声明嵌入式 Web 构建的产品必须保留该清单；构建前后核对来源、完整库存和实际编译输入，并将工具来源写入资源 provenance。下游不手改快照。没有清单的已有目录仅在所有既有文件与所选已提交源码逐字节一致时接管；改过或未知文件会阻断覆盖。已有物理 `target/` 缓存不分发、不计入源码库存，也不由同步删除。
 
 ## 配置
 

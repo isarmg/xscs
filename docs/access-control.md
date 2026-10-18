@@ -38,7 +38,7 @@ xscc 暴露 `ManagerConnection::access_policy()` watch 接收器。宿主每次�
 
 ## 状态与升级
 
-当前产品 schema revision 3、application_version v3。DDL、生成文件、release identity 和测试夹具同步更新；没有 v1/v2 自动迁移。保留旧状态，正式升级时再设计显式迁移。设备协议仍为准备分支的 v2，服务端和 xscc 必须配套升级。
+当前产品 schema revision 3、application_version v3。DDL、生成文件、release identity 和测试夹具同步更新；没有 v1/v2 自动迁移。当前契约不匹配时拒绝升级并保留原环境；需要新结构时，由专用安装流程在新的数据目录初始化，不转换旧状态。设备协议仍为准备分支的 v2，服务端和 xscc 必须配套升级。
 
 ## 平台与角色
 

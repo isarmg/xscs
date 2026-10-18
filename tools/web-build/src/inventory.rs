@@ -161,6 +161,41 @@ pub fn validate_vendors(root: &Path) -> Result<()> {
     Ok(())
 }
 
+pub fn builder_source(root: &Path, required: bool) -> Result<Option<Value>> {
+    let provenance = root.join("SOURCE.json");
+    if !provenance.exists() {
+        ensure!(!required, "Embedded Web builder requires SOURCE.json");
+        return Ok(None);
+    }
+    validate_vendor(root)?;
+    let source: Value = serde_json::from_slice(&read(&provenance)?)?;
+    let manifest: toml::Value =
+        toml::from_str(&String::from_utf8(read(&root.join("Cargo.toml"))?)?)?;
+    let package = manifest
+        .get("package")
+        .context("Builder package is missing")?;
+    let version = package
+        .get("version")
+        .and_then(toml::Value::as_str)
+        .context("Builder package version is missing")?;
+    ensure!(
+        source["format"].as_u64() == Some(1)
+            && source["package"] == "xcss-web-build"
+            && source["origin"] == "https://github.com/isarmg/xcss"
+            && source["source_directory"] == "tools/web-build"
+            && package.get("name").and_then(toml::Value::as_str) == Some("xcss-web-build")
+            && source["version"].as_str() == Some(version)
+            && source["base_revision"].as_str().is_some_and(|revision| {
+                revision.len() == 40
+                    && revision
+                        .bytes()
+                        .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+            }),
+        "Web builder source identity differs from the committed snapshot contract"
+    );
+    Ok(Some(source))
+}
+
 fn cargo_sources(
     frontend: &Path,
     base: &Path,
@@ -256,8 +291,12 @@ pub fn snapshot(root: &Path) -> Result<Value> {
         }
     }
     let builder = root.join("tools/web-build");
+    let builder_source = builder_source(
+        &builder,
+        root.join("xcss-web-build.json").is_file() && builder.join("Cargo.toml").is_file(),
+    )?;
     let mut tool_inputs = Files::new();
-    for name in ["Cargo.toml", "Cargo.lock"] {
+    for name in ["Cargo.toml", "Cargo.lock", "SOURCE.json"] {
         let path = builder.join(name);
         if path.exists() {
             tool_inputs.insert(name.into(), sha(&read(&path)?));
@@ -302,7 +341,7 @@ pub fn snapshot(root: &Path) -> Result<Value> {
     let shared_inputs = rust.get("vendor/xcss-web").cloned().unwrap_or_default();
     Ok(
         json!({"browser_inputs":browser_inputs,"shared_inputs":shared_inputs,"patched_inputs":rust,"asset_inputs":assets,
-        "builder_sha256":sha(&serde_json::to_vec(&tool_inputs)?),"builder_inputs":tool_inputs,"cargo_packages":cargo_packages}),
+        "builder_sha256":sha(&serde_json::to_vec(&tool_inputs)?),"builder_inputs":tool_inputs,"builder_source":builder_source,"cargo_packages":cargo_packages}),
     )
 }
 
@@ -415,6 +454,36 @@ pub fn vendor(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn builder_snapshot_requires_current_identity_and_exact_authored_bytes() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        assert!(builder_source(dir.path(), true).is_err());
+        fs::write(
+            dir.path().join("Cargo.toml"),
+            "[package]\nname='xcss-web-build'\nversion='1.0.0'\n",
+        )?;
+        fs::write(dir.path().join("LICENSE"), "Fixture license")?;
+        let source = json!({
+            "format":1,"package":"xcss-web-build","version":"1.0.0",
+            "origin":"https://github.com/isarmg/xcss","source_directory":"tools/web-build",
+            "base_revision":"a".repeat(40),"files":files(dir.path())?
+        });
+        let write_source = |source: &Value| -> Result<()> {
+            fs::write(dir.path().join("SOURCE.json"), serde_json::to_vec(source)?)?;
+            Ok(())
+        };
+        write_source(&source)?;
+        assert_eq!(builder_source(dir.path(), true)?, Some(source.clone()));
+        let mut wrong_identity = source.clone();
+        wrong_identity["origin"] = json!("https://example.invalid/edited-fork");
+        write_source(&wrong_identity)?;
+        assert!(builder_source(dir.path(), true).is_err());
+        write_source(&source)?;
+        fs::write(dir.path().join("LICENSE"), "Changed license")?;
+        assert!(builder_source(dir.path(), true).is_err());
+        Ok(())
+    }
+
     #[test]
     fn vendor_inventory_rejects_added_and_modified_inputs() -> Result<()> {
         let dir = tempfile::tempdir()?;

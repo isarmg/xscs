@@ -8,4 +8,4 @@ xscc 是嵌入 RustDesk 的 Rust 库。RustDesk 提供已有 Tokio runtime、身
 
 硬件、编码、画质、帧率等具体设置由 RustDesk 主控端在原生会话内选择并与被控端协商，服务端不保存、修改或下发这些设置。控制授权列表不能代替原生会话的加密身份验证。
 
-数据库 schema revision 3（application_version=v3），设备保存角色、结构化诊断和被控地址，device_access 保存唯一一份控制端到被控端的定向关系。旧状态需要保全，当前分支不提供自动迁移。产品 DDL 是 `schema/product.sql`，生成文件由固定 xcss schema-compose 工具生成，指纹采用 xcss 对 sqlite_schema 的规范算法。
+数据库 schema revision 3（application_version=v3），设备保存角色、结构化诊断和被控地址，device_access 保存唯一一份控制端到被控端的定向关系。旧状态需要保全，当前分支不解析历史结构或提供历史迁移。产品 DDL 是 `schema/product.sql`，生成文件由固定 xcss schema-compose 工具生成，指纹采用 xcss 对 sqlite_schema 的规范算法。

@@ -10,16 +10,15 @@
 
 ## 构建
 
-需要 Node 26.7.0、Python 3.11 或更新版本，以及固定 Rust/WASM 工具：
+生产构建使用固定 Rust/WASM 工具；浏览器验收另需 Node 26.7.0 和锁定开发依赖。以下构建命令对应当前入口：
 
 ```sh
 rustup toolchain install 1.99.0 --profile minimal --component rustfmt,clippy --target wasm32-unknown-unknown
 cargo +1.99.0 install wasm-bindgen-cli --version 0.2.129 --locked
-npm ci --prefix web
-npm run build --prefix web
+cargo +1.99.0 run --locked --manifest-path tools/web-build/Cargo.toml -- build --product-root .
 ```
 
-默认构建生成优化 WASM，先在临时目录生成绑定，再更新 `web/pkg`。Vite 输出到 `web/dist`；现有 `xcss-build-server` 和 Axum 嵌入资源流程继续使用这个目录。`CARGO_TARGET_DIR` 和 `WASM_BINDGEN` 可以显式指定缓存目录和固定版本工具路径。
+默认构建生成优化 WASM，先在临时目录生成绑定，再更新 `web/pkg`。Rust 构建器输出到 `web/dist`；Axum 嵌入资源流程继续使用这个目录。`CARGO_TARGET_DIR` 和 `WASM_BINDGEN` 可以显式指定缓存目录和固定版本工具路径。
 
 每份构建包含 `assets/xcss-web-build.json`，记录 Rust 输入、锁文件、公共组件输入、构建工具及生成文件的 SHA-256。编译期间输入变化会中止构建。WASM 上限 4 MiB，普通资产上限 512 KiB，完整资产上限 16 MiB；字体保留原许可证。
 
@@ -29,6 +28,7 @@ npm run build --prefix web
 cargo +1.99.0 run --locked --manifest-path tools/web-build/Cargo.toml -- check --product-root .
 cargo +1.99.0 run --locked --manifest-path tools/web-build/Cargo.toml -- test --product-root .
 cargo +1.99.0 test --locked --manifest-path tools/web-build/Cargo.toml
+npm ci --prefix web
 npm run test:browser --prefix web
 ```
 

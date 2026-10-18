@@ -1,6 +1,6 @@
 # RustDesk 管理分支
 
-本分支只支持自定义 RustDesk，客户端通过 xscc 管理库嵌入 RustDesk 主机进程。当前尚未接入真实 RustDesk。
+本分支只支持自定义 RustDesk，客户端通过 xscc 管理库嵌入 RustDesk 主机进程。本仓库负责管理服务；客户端实现与原生验收见 [xscc 文档](https://github.com/isarmg/xscc/blob/main/docs/README.md)，接入边界见[原生集成与验收](rustdesk-integration.md)。
 
 - [控制授权、角色与地址](access-control.md)
 - [架构](architecture.md)
