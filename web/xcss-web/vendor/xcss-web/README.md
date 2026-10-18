@@ -48,6 +48,7 @@ await startApplication(async () => {
 ```
 
 Rust `mount` 只在两种字重均加载、解码完成且视图成功挂载后报告就绪。
+需要共享轮廓的 Server 页面使用 `mount_server`，它还会在报告就绪前启动 Rust 几何与 DOM 绘制控制器并完成首次绘制。控制器保留原生焦点、动态样式和卸载清理行为；产品入口不再导入 JavaScript 角标模块。
 资源请求失败、WASM 无效、启动异常或 30 秒超时会显示可访问的错误和重新加载按钮，
 不会自动刷新、循环重试或以系统字体渲染业务界面。失败提示自身使用系统字体，
 即使应用字体不可用也能阅读；明确重载后重新开始启动。超时后的迟到结果不能覆盖错误页。
@@ -60,6 +61,14 @@ node web/xcss-web/tests/startup-browser.mjs
 
 需要 Rust 1.99.0、WASM target、wasm-bindgen 0.2.129 及已安装的 Chromium/Firefox；
 `CARGO_TARGET_DIR` 与 `WASM_BINDGEN` 可指定本地缓存和固定工具。
+
+静态 CSS、字体及许可证可从提交过的权威源码同步：
+
+```sh
+python3 scripts/vendor-xcss-web.py --component assets --destination /absolute/consumer/web/vendor/xcss
+```
+
+该命令在 xcss 仓库根目录执行；来源修订、完整文件清单和摘要写入 `SOURCE.json`，不导出退役的角标 JavaScript。
 
 ## 来源与许可证
 

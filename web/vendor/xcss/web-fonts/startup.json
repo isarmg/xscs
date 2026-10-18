@@ -1,8 +1,0 @@
-{
-  "policy": "all-fonts-before-ui",
-  "assets": {
-    "ready.js": "92fea3cb747cceb2f7ba10447323e81d7831f721cf6ca40c6647f4ed3871c9f2",
-    "ready.d.ts": "56618bd4e26238251b31e057de3aacb7b224911371964f97989c76d68b7852b1",
-    "boot.css": "3d521c2e7758885abe60b6051a25d59124a41006888e63eda35a0e04fa1cb25f"
-  }
-}

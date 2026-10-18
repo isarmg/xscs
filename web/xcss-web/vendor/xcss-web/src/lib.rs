@@ -3,6 +3,7 @@ pub mod api;
 pub mod components;
 pub mod contracts;
 pub mod i18n;
+pub mod server_corners;
 pub mod theme;
 
 extern crate self as xcss_web;
@@ -16,6 +17,30 @@ use wasm_bindgen::{JsCast, JsValue};
 
 /// Mount only after fonts have decoded, preserving the existing startup contract.
 pub fn mount<F, V>(root_id: &str, app: F)
+where
+    F: FnOnce() -> V + 'static,
+    V: IntoView + 'static,
+{
+    mount_application(root_id, app, false);
+}
+
+/// Mount a Server view with the shared Rust corner controller.
+pub fn mount_server<F, V>(root_id: &str, app: F)
+where
+    F: FnOnce() -> V + 'static,
+    V: IntoView + 'static,
+{
+    mount_application(root_id, app, true);
+}
+
+#[cfg(target_arch = "wasm32")]
+thread_local! {
+    // Keep the controller alive for this document; its pagehide listener releases
+    // observers, styles and URLs before an uncached page leaves.
+    static SERVER_CORNERS: std::cell::RefCell<Option<server_corners::ServerCornersController>> = const { std::cell::RefCell::new(None) };
+}
+
+fn mount_application<F, V>(root_id: &str, app: F, server_corners: bool)
 where
     F: FnOnce() -> V + 'static,
     V: IntoView + 'static,
@@ -57,6 +82,13 @@ where
             xcss_web::mount::mount_to(root, app).forget();
             html.set_attribute("data-xcss-appearance", "content-blocks")?;
             html.set_attribute("data-xcss-selection", "underline")?;
+            #[cfg(target_arch = "wasm32")]
+            if server_corners {
+                let controller = crate::server_corners::start(&document)?;
+                SERVER_CORNERS.with(|value| *value.borrow_mut() = Some(controller));
+            }
+            #[cfg(not(target_arch = "wasm32"))]
+            let _ = server_corners;
             html.set_attribute("data-xcss-fonts", "ready")?;
             html.set_attribute("data-xcss-runtime", "xcss-web")?;
             document.dispatch_event(&web_sys::Event::new("xcss-startup-ready")?)?;

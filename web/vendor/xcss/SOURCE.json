@@ -1,12 +1,11 @@
 {
+  "base_revision": "a055fdf5ce4bdf6cb943284813e42ba864c74b9d",
   "files": {
     "LICENSE": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
     "admin-ui/account-settings.css": "1ba2b5d155d1e1a50bae42d3e0c29cb7122421fdd69f3c2b5e10df36768e825f",
     "admin-ui/content-blocks.css": "c21ed82d2582f582c37082603090b430f56eb31698d711b11750e74cadec3415",
     "admin-ui/date-range.css": "442dee1c153f7dd077f9f8438f79b833f70eaf8b6be317673f1a3843c3824023",
     "admin-ui/select.css": "40a87d3a88d7fec725979101d7c8b71a3a90f5623414943924fee7077607f9b0",
-    "admin-ui/server-corner-geometry.js": "755cecf9074f79407eff941b73ff68f0fe5ca17985069d218d88a9bdb0b7ab06",
-    "admin-ui/server-corners.js": "a5794d664003667be2d642ffeeaf96fab1cabd74c0865dfb04cfaa7c8ed49503",
     "admin-ui/styles.css": "0aa93838d672c36c4a1721a451a4f42457850efa4b6236d7a0b6d7858b1b2d86",
     "design-tokens/accessibility.css": "042f0ef590b299af111c06dd8852b50b973622b151665240ae5d94276e768056",
     "design-tokens/reset.css": "20dd1eefeaffe05f2e86c69fd6cf4738b2b12fc863840c60c85afa5bcabb0761",
@@ -19,42 +18,11 @@
     "web-fonts/OFL.txt": "eb2d28d2e565a0757e3d64e34ebb452e75a0cad87c0ab3faf4e08ba7596de902",
     "web-fonts/boot.css": "3d521c2e7758885abe60b6051a25d59124a41006888e63eda35a0e04fa1cb25f",
     "web-fonts/fonts.css": "4ee14527b462cac8558947f9a3d90565e6803685a4d17ee47a55e31e059a7005",
-    "web-fonts/provenance.json": "8ea5ab63116fa0f54f5cf170a8cebb98632d23d1f2786f80719f4004ad627071",
-    "web-fonts/startup.json": "683cfa8133cc4600e05bcc8b243e95901bf05edc0569d1f9d7291190ccc24770"
+    "web-fonts/provenance.json": "8ea5ab63116fa0f54f5cf170a8cebb98632d23d1f2786f80719f4004ad627071"
   },
   "format": 1,
-  "license": "Apache-2.0",
-  "npm": {
-    "archive_files": {
-      "LICENSE": "LICENSE",
-      "admin-ui/account-settings.css": "dist/admin-ui/account-settings.css",
-      "admin-ui/content-blocks.css": "dist/admin-ui/content-blocks.css",
-      "admin-ui/date-range.css": "dist/admin-ui/date-range.css",
-      "admin-ui/select.css": "dist/admin-ui/select.css",
-      "admin-ui/server-corner-geometry.js": "dist/admin-ui/server-corner-geometry.js",
-      "admin-ui/server-corners.js": "dist/admin-ui/server-corners.js",
-      "admin-ui/styles.css": "dist/admin-ui/styles.css",
-      "design-tokens/accessibility.css": "dist/design-tokens/accessibility.css",
-      "design-tokens/reset.css": "dist/design-tokens/reset.css",
-      "design-tokens/tokens.css": "dist/design-tokens/tokens.css",
-      "design-tokens/tokens.dark.css": "dist/design-tokens/tokens.dark.css",
-      "web-fonts/CJK-LICENSE.txt": "dist/web-fonts/CJK-LICENSE.txt",
-      "web-fonts/MapleMonoFull-Bold.woff2": "dist/web-fonts/MapleMonoFull-Bold.woff2",
-      "web-fonts/MapleMonoFull-Regular.woff2": "dist/web-fonts/MapleMonoFull-Regular.woff2",
-      "web-fonts/NORMAL-LICENSE.txt": "dist/web-fonts/NORMAL-LICENSE.txt",
-      "web-fonts/OFL.txt": "dist/web-fonts/OFL.txt",
-      "web-fonts/boot.css": "dist/web-fonts/boot.css",
-      "web-fonts/fonts.css": "dist/web-fonts/fonts.css",
-      "web-fonts/provenance.json": "dist/web-fonts/provenance.json",
-      "web-fonts/startup.json": "dist/web-fonts/startup.json"
-    },
-    "integrity": "sha512-QR/zmdzyQkLnFzTTp+EHYnOL9XEe5N95XVUasnDlKqdNWw/nVoY4evq083QTxMED/ElRRYeegEItnTxCUcb7TQ==",
-    "license": "Apache-2.0",
-    "name": "@xcss/web",
-    "resolved": "https://github.com/isarmg/xcss/releases/download/v1.0.0/xcss-web-1.0.0.tgz",
-    "version": "1.0.0"
-  },
-  "origin": "https://github.com/isarmg/xcss/releases/download/v1.0.0/xcss-web-1.0.0.tgz",
+  "origin": "https://github.com/isarmg/xcss",
   "package": "@xcss/web",
-  "version": "1.0.0"
+  "source_directory": "web",
+  "version": "2.0.0"
 }
