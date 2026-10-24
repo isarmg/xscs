@@ -258,6 +258,52 @@ pub fn timestamp(v: &str) -> String {
             .unwrap_or_default()
     )
 }
+fn failure_message(error: &ApiError, fallback: &str) -> String {
+    match error.status {
+        400 | 409
+            if !error.message.trim().is_empty()
+                && error.message.chars().count() <= 512
+                && !error.message.chars().any(char::is_control) =>
+        {
+            format!("{fallback} {}", error.message.trim())
+        }
+        401 => t(
+            "登录已过期，请重新登录。",
+            "Your session expired. Sign in again.",
+        ),
+        403 => t(
+            "当前账号无权执行此操作。",
+            "This account cannot perform this operation.",
+        ),
+        404 => t(
+            "实例或记录已不存在，请刷新列表。",
+            "This instance or record no longer exists. Refresh the list.",
+        ),
+        409 => t(
+            "数据已变化，请重新读取后再保存。",
+            "The data changed. Reload it before saving.",
+        ),
+        429 => match error.retry_after_seconds {
+            Some(seconds) => t(
+                &format!("请求过于频繁，请在 {seconds} 秒后重试。"),
+                &format!("Too many requests. Retry in {seconds} seconds."),
+            ),
+            None => t(
+                "请求过于频繁，请稍后重试。",
+                "Too many requests. Try again shortly.",
+            ),
+        },
+        0 if error.code == "request_timeout" => t(
+            "请求超时，结果尚未确认。请先刷新核对，再决定是否重试。",
+            "The request timed out and its outcome is unconfirmed. Refresh to check before retrying.",
+        ),
+        0 if error.code == "network_error" => t(
+            "无法连接服务端，请检查连接并刷新核对。",
+            "Cannot reach the server. Check the connection and refresh.",
+        ),
+        _ => fallback.to_owned(),
+    }
+}
 #[component]
 pub fn Failure(
     error: RwSignal<Option<ApiError>>,
@@ -278,7 +324,7 @@ pub fn Failure(
                             .message(
                                 #[allow(unused_braces)]
                                 {
-                                    message.clone()
+                                    failure_message(&e, &message)
                                 },
                             )
                             .request_id(
@@ -1051,6 +1097,25 @@ fn valid_mutation_response(path: &str, method: &str, value: &Value) -> bool {
 #[cfg(test)]
 mod typed_response_tests {
     use super::*;
+    #[test]
+    fn conflict_feedback_keeps_the_public_recovery_instruction() {
+        let mut error = ApiError::local("conflict");
+        error.status = 409;
+        error.message = "授权已被其他页面修改，请重新读取".into();
+        let message = failure_message(&error, "Save failed.");
+        assert!(message.contains("授权已被其他页面修改，请重新读取"));
+        assert!(message.starts_with("Save failed."));
+    }
+    #[test]
+    fn internal_error_feedback_does_not_show_remote_diagnostics() {
+        let mut error = ApiError::local("internal_error");
+        error.status = 500;
+        error.message = "private transport diagnostic".into();
+        assert_eq!(
+            failure_message(&error, "Request failed."),
+            "Request failed."
+        );
+    }
     #[test]
     fn transport_errors_are_not_reclassified_as_contract_errors() {
         let old_transport = ApiError::local("invalid_response_shape");

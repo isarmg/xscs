@@ -32,6 +32,7 @@ pub struct Device {
     pub role: DeviceRole,
     pub addresses: Vec<Address>,
     pub registered: bool,
+    pub pairing_pending: bool,
     pub revoked: bool,
     pub client_online: bool,
     // Preserve JSON integer precision until the JS Date rendering boundary.
@@ -120,6 +121,10 @@ pub struct CreateDevice {
 #[derive(Serialize)]
 pub struct RenameDevice {
     pub name: String,
+}
+#[derive(Serialize)]
+pub struct UpdateAuthorization {
+    pub authorization_code: String,
 }
 #[derive(Serialize)]
 pub struct UpdateAccess {
