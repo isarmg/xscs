@@ -70,6 +70,21 @@ class HTTPSRedirects(urllib.request.HTTPRedirectHandler):
 
 def download(url,expected=None):
     public_https(url)
+    cache=os.environ.get('XSSI_RUNTIME_SOURCE_CACHE')
+    if cache is not None and expected is not None:
+        # A cache is only a transport substitute for an exactly pinned source.
+        sbom.sha(expected)
+        directory=Path(cache)
+        if not directory.is_absolute():
+            raise ValueError('runtime source cache requires an absolute physical directory')
+        archive=sbom.physical_directory(directory)/expected
+        try:archive.lstat()
+        except FileNotFoundError:pass
+        else:
+            result=bounded(archive,MAX_ARCHIVE)
+            if hashlib.sha256(result).hexdigest()!=expected:
+                raise ValueError('runtime source cache archive SHA-256 differs')
+            return result
     result=bytearray();deadline=time.monotonic()+600
     with urllib.request.build_opener(HTTPSRedirects()).open(url,timeout=60) as response:
         public_https(response.geturl(),redirect=True)

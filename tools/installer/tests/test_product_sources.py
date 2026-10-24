@@ -1,6 +1,7 @@
 """Product source binding prevents remote dependencies and coedited inputs."""
 import hashlib
 import importlib.util
+import io
 import json
 import os
 from pathlib import Path
@@ -114,6 +115,76 @@ class ProductSourceTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError,'candidate product repository'):
             load(foreign).load_adapter(adapter,revision)
         self.assertFalse(marker.exists())
+
+
+class RuntimeSourceCacheTests(unittest.TestCase):
+    def setUp(self):
+        temporary=tempfile.TemporaryDirectory(prefix='xscs-runtime-cache-')
+        self.addCleanup(temporary.cleanup)
+        self.cache=Path(temporary.name)
+        self.payload=b'original pinned distribution fixture'
+        self.expected=sha(self.payload)
+        self.url='https://example.invalid/original.zip'
+
+    def test_exact_cache_hit_is_verified_without_network_or_writes(self):
+        archive=self.cache/self.expected
+        archive.write_bytes(self.payload)
+        before=archive.stat()
+        with mock.patch.dict(os.environ,{'XSSI_RUNTIME_SOURCE_CACHE':str(self.cache)}), \
+                mock.patch.object(frontend_receipt.urllib.request,'build_opener',side_effect=AssertionError('unexpected network')):
+            self.assertEqual(frontend_receipt.download(self.url,self.expected),self.payload)
+            with self.assertRaisesRegex(ValueError,'public HTTPS'):
+                frontend_receipt.download('http://example.invalid/original.zip',self.expected)
+        self.assertEqual(list(self.cache.iterdir()),[archive])
+        self.assertEqual(archive.stat().st_mtime_ns,before.st_mtime_ns)
+
+    def test_corrupt_unsafe_or_oversized_cache_is_rejected_without_fallback(self):
+        archive=self.cache/self.expected
+        target=self.cache/'original'
+        with mock.patch.dict(os.environ,{'XSSI_RUNTIME_SOURCE_CACHE':str(self.cache)}), \
+                mock.patch.object(frontend_receipt.urllib.request,'build_opener',side_effect=AssertionError('unexpected network')):
+            archive.write_bytes(b'corrupt fixture')
+            with self.assertRaisesRegex(ValueError,'cache archive SHA-256 differs'):
+                frontend_receipt.download(self.url,self.expected)
+            archive.unlink()
+            target.write_bytes(self.payload)
+            archive.symlink_to(target)
+            with self.assertRaisesRegex(ValueError,'link'):
+                frontend_receipt.download(self.url,self.expected)
+            archive.unlink()
+            os.link(target,archive)
+            with self.assertRaisesRegex(ValueError,'single-link'):
+                frontend_receipt.download(self.url,self.expected)
+            archive.unlink()
+            archive.write_bytes(self.payload)
+            with mock.patch.object(frontend_receipt,'MAX_ARCHIVE',len(self.payload)-1):
+                with self.assertRaisesRegex(ValueError,'bounded'):
+                    frontend_receipt.download(self.url,self.expected)
+            with mock.patch.dict(os.environ,{'XSSI_RUNTIME_SOURCE_CACHE':'relative-cache'}):
+                with self.assertRaisesRegex(ValueError,'absolute physical directory'):
+                    frontend_receipt.download(self.url,self.expected)
+            directory_link=self.cache/'directory-link'
+            directory_link.symlink_to(self.cache,target_is_directory=True)
+            with mock.patch.dict(os.environ,{'XSSI_RUNTIME_SOURCE_CACHE':str(directory_link)}):
+                with self.assertRaisesRegex(ValueError,'physical directories'):
+                    frontend_receipt.download(self.url,self.expected)
+            with self.assertRaisesRegex(ValueError,'SHA-256 is invalid'):
+                frontend_receipt.download(self.url,'../not-a-sha')
+
+    def test_missing_cache_unset_cache_and_unpinned_sources_use_original_downloader(self):
+        for mode in ('missing','unset','unpinned'):
+            with self.subTest(mode=mode), mock.patch.dict(os.environ,clear=False):
+                os.environ.pop('XSSI_RUNTIME_SOURCE_CACHE',None)
+                if mode!='unset':
+                    os.environ['XSSI_RUNTIME_SOURCE_CACHE']=str(self.cache) if mode=='missing' else 'unused-relative-cache'
+                response=io.BytesIO(self.payload)
+                response.geturl=lambda:self.url
+                with mock.patch.object(frontend_receipt.urllib.request,'build_opener') as factory:
+                    factory.return_value.open.return_value=response
+                    expected=None if mode=='unpinned' else self.expected
+                    self.assertEqual(frontend_receipt.download(self.url,expected),self.payload)
+                    factory.return_value.open.assert_called_once_with(self.url,timeout=60)
+                    self.assertIsInstance(factory.call_args.args[0],frontend_receipt.HTTPSRedirects)
 
 
 if __name__=='__main__':
