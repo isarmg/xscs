@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build the runtime and delegate checksummed package assembly to pinned XSSI."""
+"""Build the runtime with the product-local checksummed installation tools."""
 from __future__ import annotations
 import gzip
 import hashlib
@@ -57,20 +57,15 @@ def private_source_checkout(destination:Path,revision:str)->Path:
     verify_source_checkout(destination,revision)
     return destination
 
-def installer_fetch_environment()->dict[str,str]:
-    environment=build_environment()
-    environment["GIT_TERMINAL_PROMPT"]="0"
-    environment["GIT_TRACE_REDACT"]="1"
-    for variable in ["GIT_TRACE","GIT_TRACE_CURL","GIT_CURL_VERBOSE","GIT_TRACE2","GIT_TRACE2_EVENT","GIT_TRACE2_PERF"]:
-        environment[variable]="0"
-    return environment
+def pinned_installer(source:Path)->Path:
+    verify_source_checkout(source,run(['git','rev-parse','HEAD'],cwd=source))
+    installer=source/'tools/installer'
+    if (not installer.is_dir() or installer.is_symlink()
+            or Path(run(['git','rev-parse','--show-toplevel'],cwd=installer)).resolve()!=source.resolve()):
+        raise ValueError('official packages require the installer committed with this product')
+    run(['python3','-I','-B',str(installer/'scripts/verify-foundation.py')],cwd=source)
+    return installer
 
-def pinned_installer(source:Path)->tuple[str,str]:
-    raw=(source/"config/xssi.lock").read_text(encoding="ascii")
-    matched=re.fullmatch(r"git_rev=([0-9a-f]{40})\n",raw)
-    if matched is None or matched[1]=="0"*40:
-        raise ValueError("config/xssi.lock must contain one immutable reviewed 40-hex XSSI revision")
-    return "https://github.com/isarmg/xssi.git",matched[1]
 
 def stage_verified_server(binary:Path,destination:Path,revision:str)->None:
     # The receipt is written by the trusted builder after Cargo returns this ELF.
@@ -106,7 +101,7 @@ def main()->None:
     output=Path(sys.argv[1])
     if not output.is_absolute() or not output.is_dir() or output.resolve()!=output or output==SOURCE or SOURCE in output.parents:
         raise ValueError("output must be an existing absolute directory outside the source repository")
-    repository,pin=pinned_installer(SOURCE)
+    pinned_installer(SOURCE)
     if run(["git","status","--porcelain=v1","--untracked-files=all"]):
         raise ValueError("official packages require a clean source tree")
     revision=run(["git","rev-parse","HEAD"])
@@ -123,14 +118,7 @@ def main()->None:
     with tempfile.TemporaryDirectory(prefix=f"{PRODUCT}-package-") as temporary:
         work=Path(temporary)
         source=private_source_checkout(work/"source",revision)
-        installer=work/"xssi"
-        installer.mkdir()
-        run(["git","init","--quiet"],cwd=installer)
-        run(["git","remote","add","origin",repository],cwd=installer)
-        run(["git","fetch","--quiet","--depth=1","origin",pin],cwd=installer,env=installer_fetch_environment())
-        run(["git","checkout","--quiet","--detach","FETCH_HEAD"],cwd=installer)
-        if run(["git","rev-parse","HEAD"],cwd=installer)!=pin:
-            raise ValueError("installer checkout differs from the reviewed pin")
+        installer=pinned_installer(source)
         stage=work/name
         (stage/"bin").mkdir(parents=True)
         (stage/"config").mkdir()

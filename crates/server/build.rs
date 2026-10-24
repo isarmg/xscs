@@ -10,53 +10,40 @@ mod persistent_crypto_definition;
 mod secret_definition;
 #[path = "../../scripts/server-target-gate.rs"]
 mod target_gate;
-use std::{collections::BTreeSet, env, fs};
+use std::{env, fs};
 
-const XCSS_SOURCE: &str = "git+https://github.com/isarmg/xcss.git?rev=";
-
-fn locked_xcss_revision(lockfile: &str) -> String {
-    let mut revisions = BTreeSet::new();
-    for line in lockfile.lines().map(str::trim) {
-        let Some(source) = line
-            .strip_prefix("source = \"")
-            .and_then(|value| value.strip_suffix('"'))
-        else {
-            continue;
-        };
-        let Some(rest) = source.strip_prefix(XCSS_SOURCE) else {
-            continue;
-        };
-        let (requested, locked) = rest
-            .split_once('#')
-            .expect("xcss Cargo.lock source must contain a locked commit");
-        assert!(
-            requested == locked
-                && locked.len() == 40
-                && locked
-                    .bytes()
-                    .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f')),
-            "xcss Cargo.lock source must bind one exact lowercase 40-hex revision"
-        );
-        revisions.insert(locked.to_owned());
-    }
-    if revisions.is_empty() {
+fn local_foundation_revision(lockfile: &str, source_revision: &str) -> String {
+    let packages = lockfile
+        .split("[[package]]")
+        .filter(|package| {
+            package
+                .lines()
+                .any(|line| line.trim() == r#"name = "xscs-foundation""#)
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        packages.len(),
+        1,
+        "one product-owned foundation is required"
+    );
+    assert!(
+        !packages[0]
+            .lines()
+            .any(|line| line.trim().starts_with("source =")),
+        "the product foundation must resolve from its workspace path"
+    );
+    if source_revision == "unbound" {
         assert_eq!(
             env::var("PROFILE").as_deref(),
             Ok("debug"),
-            "release builds require a source-bound xcss dependency"
+            "release builds require a source-bound product foundation"
         );
         assert!(
             env::var_os("XSSI_BUILD_METADATA_DIR").is_none(),
-            "release metadata cannot describe an unbound foundation"
+            "release metadata requires a source-bound product foundation"
         );
-        return "unbound".into();
     }
-    assert_eq!(
-        revisions.len(),
-        1,
-        "the xcss package must use one locked revision"
-    );
-    revisions.into_iter().next().expect("checked non-empty")
+    source_revision.to_owned()
 }
 
 fn main() {
@@ -82,7 +69,7 @@ fn main() {
     );
     println!("cargo:rustc-env=XSCS_SOURCE_REVISION={source_revision}");
     let lockfile = fs::read_to_string(product_root.join("Cargo.lock")).expect("read Cargo.lock");
-    let xcss_revision = locked_xcss_revision(&lockfile);
+    let xcss_revision = local_foundation_revision(&lockfile, &source_revision);
     println!("cargo:rustc-env=XCSS_REVISION={xcss_revision}");
     println!("cargo:rerun-if-env-changed=XSCS_SOURCE_REVISION");
     println!(

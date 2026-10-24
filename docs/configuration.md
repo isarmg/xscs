@@ -8,4 +8,4 @@
 
 `bind` 选择监听地址，`log_level` 选择结构化日志等级。`development` 用于显式回环 HTTP 开发模式；生产管理会话要求浏览器 HTTPS 来源。只有未绑定发行源码的 debug 构建允许使用开发目录 Web 资源和开发用户所有的私有配置。
 
-产品前缀环境变量的明确映射见 `crates/server/src/config.rs`，优先于 JSON；命令行只选择 ROOT。独立 XSSI 只读维护核对当前材料和实际有效配置，诊断不输出凭据。业务程序没有代理或访客 IP 配置。
+产品前缀环境变量的明确映射见 `crates/server/src/config.rs`，优先于 JSON；命令行只选择 ROOT。包内工具的只读维护核对当前材料和实际有效配置，诊断不输出凭据。业务程序没有代理或访客 IP 配置。

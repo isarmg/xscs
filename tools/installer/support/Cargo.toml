@@ -1,0 +1,30 @@
+[package]
+name = "xscs-install-support"
+version = "1.0.0"
+edition = "2024"
+rust-version = "1.99"
+license = "Apache-2.0"
+publish = false
+
+[features]
+default = []
+offline-maintenance = []
+
+[dependencies]
+aes-gcm = "0.11.1"
+futures-executor = "0.3"
+getrandom = "0.4"
+hkdf = "0.13.0"
+libc = "0.2.190"
+libsqlite3-sys = { version = "=0.37.0", features = ["bundled"] }
+rustix = { version = "1.1.5", features = ["fs", "process"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.11.0"
+sqlx = { version = "=0.9.0", default-features = false, features = ["sqlite-bundled"] }
+thiserror = "2"
+tokio = { version = "~1.53.2", features = ["rt-multi-thread", "macros", "sync", "time"] }
+zeroize = "1.9.1"
+
+[dev-dependencies]
+tempfile = "3"

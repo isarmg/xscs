@@ -4,7 +4,8 @@ product_id = "xscs"
 [foundation]
 platform_generation = 1
 version = "1.0.0"
-git_rev = "d9f6f2a900d85eac0bb8c53575ccd4ca09890514"
+package = "xscs-foundation"
+path = "crates/foundation"
 
 [[components]]
 id = "server"

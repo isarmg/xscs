@@ -19,9 +19,9 @@ class CandidateWorkflow(unittest.TestCase):
         self.assertIn('    needs: scope\n', INSTALLED)
         self.assertNotIn('needs: source', INSTALLED)
         for command in ('cargo fmt --all -- --check',
-                        'cargo check --locked --target x86_64-unknown-linux-gnu --all-targets',
-                        'cargo clippy --locked --target x86_64-unknown-linux-gnu --all-targets -- -D warnings',
-                        'cargo test --locked --target x86_64-unknown-linux-gnu',
+                        'cargo check --locked --target x86_64-unknown-linux-gnu --workspace --all-targets',
+                        'cargo clippy --locked --target x86_64-unknown-linux-gnu --workspace --all-targets -- -D warnings',
+                        'cargo test --locked --target x86_64-unknown-linux-gnu --workspace -- --test-threads=2',
                         'cargo test --locked -p xscs-protocol',
                         'cargo clippy --locked -p xscs-protocol --all-targets -- -D warnings',
                         'npx playwright install --with-deps chromium firefox', 'npm run test:browser',
@@ -37,7 +37,8 @@ class CandidateWorkflow(unittest.TestCase):
         self.assertIn('XSSI_FRONTEND_METADATA_FILE: ${{ runner.temp }}/install-metadata/frontend.json', INSTALLED)
         self.assertIn('scripts/package-installed-candidate.sh', INSTALLED)
         self.assertIn('"$CARGO_TARGET_DIR/$SERVER_TARGET/release/xscs"', INSTALLED)
-        self.assertIn('git -C "$installer" fetch --quiet --depth=1 origin "$revision"', INSTALLED)
+        self.assertIn('installer="$GITHUB_WORKSPACE/tools/installer"', INSTALLED)
+        self.assertNotIn('git -C "$installer" fetch', INSTALLED)
         self.assertIn('python3 -I -B "$installer/tests/installed_lifecycle.py"', INSTALLED)
         self.assertIn('--adapter "$GITHUB_WORKSPACE/scripts/installed-lifecycle-adapter.py" "${candidates[0]}" "$GITHUB_SHA"', INSTALLED)
         self.assertIn('sudo env GITHUB_ACTIONS="$GITHUB_ACTIONS" RUNNER_ENVIRONMENT="$RUNNER_ENVIRONMENT"', INSTALLED)
@@ -50,7 +51,7 @@ class CandidateWorkflow(unittest.TestCase):
             self.assertIn("'Cargo.lock'", lane)
             self.assertIn("'tools/web-build/Cargo.lock'", lane)
             self.assertIn("'web/rust-web.toml'", lane)
-            self.assertIn("'config/xssi.lock'", lane)
+            self.assertIn("'tools/installer/**'", lane)
             self.assertIn('fingerprint', lane)
             self.assertIn('cargo clean --package xscs', lane)
             self.assertNotIn('restore-keys:', lane)
@@ -85,28 +86,31 @@ class CandidateWorkflow(unittest.TestCase):
             root = Path(temporary)
             source = root / 'source'
             (source / 'scripts').mkdir(parents=True)
-            (source / 'config').mkdir()
             caller = source / 'scripts/package-installed-candidate.sh'
             shutil.copyfile(ROOT / 'scripts/package-installed-candidate.sh', caller)
-            installer = root / 'installer'
+            installer = source / 'tools/installer'
             (installer / 'scripts').mkdir(parents=True)
             marker = root / 'producer-was-executed'
             producer = installer / 'scripts/package-installed-candidate.py'
             producer.write_text('from pathlib import Path\nPath(' + repr(str(marker)) + ').touch()\n')
-            subprocess.run(['git', 'init', '--quiet', str(installer)], check=True)
-            subprocess.run(['git', '-C', str(installer), 'add', '.'], check=True)
-            subprocess.run(['git', '-C', str(installer), '-c', 'user.name=Fixture', '-c',
+            (installer / 'scripts/verify-foundation.py').write_text('# owned verifier fixture\n')
+            subprocess.run(['git', 'init', '--quiet', str(source)], check=True)
+            subprocess.run(['git', '-C', str(source), 'add', '.'], check=True)
+            subprocess.run(['git', '-C', str(source), '-c', 'user.name=Fixture', '-c',
                             'user.email=fixture@example.invalid', 'commit', '--quiet', '-m', 'Owned source gate fixture'], check=True)
-            revision = subprocess.check_output(['git', '-C', str(installer), 'rev-parse', 'HEAD'], text=True).strip()
-            lock = source / 'config/xssi.lock'
             args = ['bash', str(caller), str(root / 'binary'), str(root / 'metadata'), str(installer), str(root / 'output')]
-            lock.write_text('git_rev=' + 'a' * 40 + '\n')
-            self.assertNotEqual(subprocess.run(args, capture_output=True).returncode, 0)
+            foreign = root / 'foreign'
+            foreign.mkdir()
+            wrong = [*args]
+            wrong[-2] = str(foreign)
+            self.assertNotEqual(subprocess.run(wrong, capture_output=True).returncode, 0)
             self.assertFalse(marker.exists())
-            lock.write_text('git_rev=' + revision + '\n')
             producer.write_text(producer.read_text() + '# unreviewed modification\n')
             self.assertNotEqual(subprocess.run(args, capture_output=True).returncode, 0)
             self.assertFalse(marker.exists())
+            subprocess.run(['git', '-C', str(source), 'checkout', '--', 'tools/installer/scripts/package-installed-candidate.py'], check=True)
+            self.assertEqual(subprocess.run(args, capture_output=True).returncode, 0)
+            self.assertTrue(marker.exists())
 
 
 if __name__ == '__main__':

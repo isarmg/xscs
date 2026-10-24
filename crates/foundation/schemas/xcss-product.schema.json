@@ -1,0 +1,94 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.sarmg.org/xcss/xcss-product.v1.schema.json",
+  "title": "Server and server-management Web product manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "format",
+    "product_id",
+    "foundation",
+    "components"
+  ],
+  "properties": {
+    "format": {
+      "const": 1
+    },
+    "product_id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]{0,62}$",
+      "not": {
+        "pattern": "^x[a-z]{2}c$"
+      }
+    },
+    "foundation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "platform_generation",
+        "version",
+        "git_rev"
+      ],
+      "properties": {
+        "platform_generation": {
+          "const": 1
+        },
+        "version": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$"
+        },
+        "git_rev": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        }
+      }
+    },
+    "components": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "profile",
+          "capabilities"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]{0,62}$"
+          },
+          "profile": {
+            "enum": [
+              "server-control-plane",
+              "server-filesystem",
+              "web-csr-admin",
+              "web-embedded-native"
+            ]
+          },
+          "http_adapter": {
+            "enum": [
+              "axum",
+              "hyper"
+            ]
+          },
+          "web_profile": {
+            "enum": [
+              "web-csr-admin",
+              "web-embedded-native"
+            ]
+          },
+          "capabilities": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9-]{0,62}$"
+            }
+          }
+        }
+      }
+    }
+  }
+}

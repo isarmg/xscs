@@ -6,7 +6,7 @@
 
 控制端支持 Linux amd64、macOS 26 Apple Silicon、Windows 11 amd64、iOS 26 arm64 和 Android arm64（API 29 起）；被控端支持前三个桌面平台。iOS/Android 不提供被控服务。
 
-服务运行目标仍为 Linux x86_64 GNU，入口为 `xscs --root ROOT`。安装与离线维护继续由 XSSI 负责。本分支使用新建的 schema v3 状态；不会自动转换或接管旧实例。
+服务运行目标仍为 Linux x86_64 GNU，入口为 `xscs --root ROOT`。安装与离线维护由本仓库 `tools/installer` 完成，保留导入代码的原始来源与许可证。本分支使用新建的 schema v3 状态；不会自动转换或接管旧实例。
 
 - [架构与边界](docs/architecture.md)
 - [当前设备协议](docs/client-management-v2.md)
@@ -23,3 +23,14 @@ cargo +1.99.0 run --quiet --locked --manifest-path tools/web-build/Cargo.toml --
 ```
 
 开发监听、Axum 集成和测试边界见 [Rust 原生 Web 构建与测试](docs/rust-native-web.md)。Node/Playwright 仅用于当前真实浏览器验收，退役的 Vite 与 React 对照实现已移除。
+
+## 本机 HTTP 测试
+
+本机测试使用 `config/config.http-test.json.example` 的配置：`development: true`，
+并显式监听 `0.0.0.0:18104`。将配置应用到安装根目录 `ROOT/config/config.json`
+时保留服务账号的读取权限，然后重启服务。
+
+Windows 与 WSL 同机访问地址为 `http://127.0.0.1:18104`，管理员登录使用安装时创建的
+用户名和密码。本机管理员 HTTP 会话只接受回环地址的同源请求；实例绑定使用管理页面
+为设备生成的实例密码。客户端对 `localhost`、`127.0.0.1` 和 `::1` 支持 HTTP/WS。
+生产配置保持默认的 HTTPS 管理员来源策略。

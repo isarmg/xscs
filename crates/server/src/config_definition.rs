@@ -34,7 +34,7 @@ pub(crate) fn intrinsic_rules() -> serde_json::Value {
     use serde_json::json;
     let rules = vec![
         json!({"kind":"enum","fields":["/log_level"],"arguments":{"values":["off","error","warn","info","debug","trace"]}}),
-        json!({"kind":"socket-address","fields":["/bind"],"arguments":{"loopback_when":"/development"}}),
+        json!({"kind":"socket-address","fields":["/bind"],"arguments":{}}),
         json!({"kind":"path","fields":["/data_dir"],"arguments":{"absolute":true}}),
         json!({"kind":"path","fields":["/development_web_dir"],"arguments":{"absolute":true,"optional":true}}),
     ];

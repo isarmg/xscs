@@ -1,26 +1,20 @@
 #[test]
-fn embedded_xcss_revision_matches_every_locked_xcss_package() {
-    let revision = env!("XCSS_REVISION");
+fn embedded_foundation_is_bound_to_the_product_source() {
+    assert_eq!(env!("XCSS_REVISION"), env!("XSCS_SOURCE_REVISION"));
     let lockfile = include_str!("../../../Cargo.lock");
-    let sources = lockfile
-        .lines()
-        .map(str::trim)
-        .filter(|line| line.starts_with("source = \"git+https://github.com/isarmg/xcss.git?rev="))
+    let packages = lockfile
+        .split("[[package]]")
+        .filter(|package| {
+            package
+                .lines()
+                .any(|line| line.trim() == r#"name = "xscs-foundation""#)
+        })
         .collect::<Vec<_>>();
-    if sources.is_empty() {
-        #[cfg(debug_assertions)]
-        {
-            assert_eq!(revision, "unbound");
-            return;
-        }
-        #[cfg(not(debug_assertions))]
-        panic!("release builds cannot use an unbound foundation");
-    }
-    assert_eq!(revision.len(), 40);
-    assert!(!sources.is_empty());
+    assert_eq!(packages.len(), 1);
     assert!(
-        sources
-            .iter()
-            .all(|source| { source.contains(&format!("?rev={revision}#{revision}\"")) })
+        !packages[0]
+            .lines()
+            .any(|line| line.trim().starts_with("source ="))
     );
+    assert!(!lockfile.contains("git+https://github.com/isarmg/xcss"));
 }

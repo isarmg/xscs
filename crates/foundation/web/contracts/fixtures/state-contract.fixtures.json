@@ -1,0 +1,94 @@
+{
+  "valid": [
+    {
+      "contract_version": 1,
+      "application": "xsos",
+      "application_version": "0.3.0",
+      "source_revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "schema": {
+        "revision": 3,
+        "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      },
+      "maintenance_locks": ["database", "data-tree"],
+      "resources": [
+        { "name": "database", "kind": "sqlite", "required": true }
+      ],
+      "external_requirements": [
+        {
+          "kind": "credentials-key",
+          "kid": "host-primary",
+          "algorithm": "aes-256-gcm",
+          "envelope_version": 1
+        }
+      ],
+      "companion_contracts": [
+        {
+          "name": "xsoc",
+          "version": "0.3.0",
+          "platform": "x86_64-linux",
+          "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+        }
+      ]
+    },
+    {
+      "contract_version": 1,
+      "application": "xcss",
+      "application_version": "0.3.0",
+      "source_revision": "dddddddddddddddddddddddddddddddddddddddd",
+      "schema": null,
+      "maintenance_locks": [],
+      "resources": [],
+      "external_requirements": [],
+      "companion_contracts": []
+    }
+  ],
+  "invalid": [
+    {
+      "contract_version": 1,
+      "application": "xsos",
+      "application_version": "0.3.0",
+      "source_revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "schema": null,
+      "maintenance_locks": [],
+      "resources": [],
+      "external_requirements": [],
+      "companion_contracts": [],
+      "unknown_extension": true
+    },
+    {
+      "contract_version": 1,
+      "application": "xsos",
+      "application_version": "0.3.0",
+      "source_revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "schema": null,
+      "maintenance_locks": ["database", "database"],
+      "resources": [],
+      "external_requirements": [],
+      "companion_contracts": []
+    },
+    {
+      "contract_version": 1,
+      "application": "xsos",
+      "application_version": "0.3.0",
+      "source_revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "schema": { "revision": 9007199254740992, "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" },
+      "maintenance_locks": [],
+      "resources": [],
+      "external_requirements": [],
+      "companion_contracts": []
+    },
+    {
+      "contract_version": 1,
+      "application": "xsos",
+      "application_version": "0.3.0",
+      "source_revision": "unbound",
+      "schema": null,
+      "maintenance_locks": [],
+      "resources": [
+        { "name": "database", "kind": "sqlite", "required": true, "path": "database.sqlite3" }
+      ],
+      "external_requirements": [],
+      "companion_contracts": []
+    }
+  ]
+}

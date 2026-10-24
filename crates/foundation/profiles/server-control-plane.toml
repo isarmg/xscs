@@ -1,0 +1,30 @@
+format = 1
+id = "server-control-plane"
+kind = "server"
+formal_targets = ["x86_64-unknown-linux-gnu"]
+http_adapters = ["axum"]
+web_profiles = ["web-csr-admin"]
+required_capabilities = [
+  "platform-sqlite",
+  "admin-persistent",
+  "server-runtime",
+  "server-health",
+]
+optional_capabilities = [
+  "embedded-web",
+  "durable-operations",
+  "secure-http",
+  "secret-envelope",
+  "filesystem-root",
+  "linux-openat2",
+]
+
+[policy]
+revision = 1
+session_idle_seconds = 1800
+session_absolute_seconds = 43200
+sessions_per_administrator = 32
+sessions_global = 1024
+argon2_concurrency = 2
+argon2_acquire_timeout_seconds = 2
+session_last_seen_write_interval_seconds = 60

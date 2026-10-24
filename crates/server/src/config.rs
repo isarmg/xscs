@@ -74,7 +74,6 @@ impl ServeConfig {
                 || (!production && crate::release_contract::SOURCE_REVISION == "unbound"),
             "directory Web assets require an unbound development build"
         );
-        validate_bind(bind, production)?;
 
         Ok(Self {
             root: root.to_path_buf(),
@@ -173,14 +172,6 @@ fn decode_key(value: &str) -> anyhow::Result<[u8; 32]> {
         .map_err(|_| anyhow::anyhow!("credential key must decode to exactly 32 bytes"))
 }
 
-fn validate_bind(bind: SocketAddr, production: bool) -> anyhow::Result<()> {
-    anyhow::ensure!(
-        production || bind.ip().is_loopback(),
-        "XSCS_DEVELOPMENT=true requires a loopback XSCS_BIND"
-    );
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -202,17 +193,33 @@ mod tests {
             )
             .unwrap();
             assert_eq!(loaded.value.bind, bind.parse::<SocketAddr>().unwrap());
-            validate_bind(loaded.value.bind, !loaded.value.development).unwrap();
         }
     }
 
     #[test]
-    fn development_requires_a_loopback_backend_address() {
-        for bind in ["127.0.0.1:18104", "[::1]:18104"] {
-            validate_bind(bind.parse().unwrap(), false).unwrap();
-        }
-        for bind in ["10.20.0.12:18104", "0.0.0.0:18104", "[::]:18104"] {
-            assert!(validate_bind(bind.parse().unwrap(), false).is_err());
+    fn development_accepts_explicit_bind_addresses() {
+        assert!(Settings::default().bind.ip().is_loopback());
+        for bind in [
+            "127.0.0.1:18104",
+            "[::1]:18104",
+            "0.0.0.0:18104",
+            "[::]:18104",
+        ] {
+            let file = serde_json::to_vec(&serde_json::json!({
+                "bind": bind,
+                "development": true
+            }))
+            .unwrap();
+            let loaded = xcss::config::resolve_validated(
+                &Settings::default(),
+                Some(&file),
+                &[],
+                &[],
+                validate_intrinsic,
+            )
+            .unwrap();
+            assert!(loaded.value.development);
+            assert_eq!(loaded.value.bind, bind.parse::<SocketAddr>().unwrap());
         }
     }
 

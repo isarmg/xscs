@@ -79,6 +79,8 @@ jobs:
           python3 -m py_compile scripts/package-release.py scripts/installed-lifecycle-adapter.py
           bash -n scripts/package-installed-candidate.sh
           python3 -I -B scripts/test-package-boundary.py
+          python3 -I -B -m unittest discover -s tools/installer/tests -p test_product_sources.py -v
+          cargo test --locked --manifest-path tools/installer/Cargo.toml --target x86_64-unknown-linux-gnu -p xscs-install-support --lib -- --test-threads=2
           python3 -I -B scripts/test-installed-lifecycle-adapter.py
           python3 -I -B scripts/test-installed-candidate-workflow.py
       - name: Install exact Rust toolchain
@@ -105,7 +107,7 @@ jobs:
             ~/.cargo/registry/index
             ~/.cargo/git/db
             target
-          key: xscs-source-rust-v1-${{ runner.os }}-${{ runner.arch }}-rust-1.99.0-x86_64-unknown-linux-gnu-${{ steps.source_environment.outputs.fingerprint }}-${{ hashFiles('Cargo.lock', 'tools/web-build/Cargo.lock', 'tools/web-build/src/**', 'web/rust-web.toml', 'web/vendor/**', 'web/xcss-web/vendor/**', 'web/xcss-web/Cargo.lock', '**/Cargo.toml', '**/build.rs', '.cargo/**', 'rust-toolchain.toml', 'config/xssi.lock', 'web/package-lock.json', 'xcss-web-build.json', '.github/workflows/ci.yml') }}
+          key: xscs-source-rust-v1-${{ runner.os }}-${{ runner.arch }}-rust-1.99.0-x86_64-unknown-linux-gnu-${{ steps.source_environment.outputs.fingerprint }}-${{ hashFiles('Cargo.lock', 'tools/web-build/Cargo.lock', 'tools/web-build/src/**', 'web/rust-web.toml', 'web/vendor/**', 'web/xcss-web/vendor/**', 'web/xcss-web/Cargo.lock', '**/Cargo.toml', '**/build.rs', '.cargo/**', 'rust-toolchain.toml', 'tools/installer/**', 'web/package-lock.json', 'xcss-web-build.json', '.github/workflows/ci.yml') }}
       - name: Recompile first-party checks from the current checkout
         run: |
           cargo clean --package xscs --package xscs-protocol
@@ -146,11 +148,11 @@ jobs:
       - name: Check formatting
         run: cargo fmt --all -- --check
       - name: Check the Server target
-        run: cargo check --locked --target x86_64-unknown-linux-gnu --all-targets
+        run: cargo check --locked --target x86_64-unknown-linux-gnu --workspace --all-targets
       - name: Lint the Server target
-        run: cargo clippy --locked --target x86_64-unknown-linux-gnu --all-targets -- -D warnings
+        run: cargo clippy --locked --target x86_64-unknown-linux-gnu --workspace --all-targets -- -D warnings
       - name: Test Rust and manifest contract
-        run: cargo test --locked --target x86_64-unknown-linux-gnu
+        run: cargo test --locked --target x86_64-unknown-linux-gnu --workspace -- --test-threads=2
       - name: Test and lint the product protocol
         run: |
           cargo test --locked -p xscs-protocol
@@ -239,7 +241,7 @@ jobs:
             ~/.cargo/git/db
             target
           # No fallback keys. Only a successful main push saves this cache.
-          key: xscs-installed-release-v1-${{ runner.os }}-${{ runner.arch }}-rust-1.99.0-${{ env.SERVER_TARGET }}-${{ steps.release_environment.outputs.fingerprint }}-${{ hashFiles('Cargo.lock', 'tools/web-build/Cargo.lock', 'tools/web-build/src/**', 'web/rust-web.toml', 'web/vendor/**', 'web/xcss-web/vendor/**', 'web/xcss-web/Cargo.lock', '**/Cargo.toml', '**/build.rs', '.cargo/**', 'rust-toolchain.toml', 'config/xssi.lock', 'web/package-lock.json', 'xcss-web-build.json', '.github/workflows/ci.yml') }}
+          key: xscs-installed-release-v1-${{ runner.os }}-${{ runner.arch }}-rust-1.99.0-${{ env.SERVER_TARGET }}-${{ steps.release_environment.outputs.fingerprint }}-${{ hashFiles('Cargo.lock', 'tools/web-build/Cargo.lock', 'tools/web-build/src/**', 'web/rust-web.toml', 'web/vendor/**', 'web/xcss-web/vendor/**', 'web/xcss-web/Cargo.lock', '**/Cargo.toml', '**/build.rs', '.cargo/**', 'rust-toolchain.toml', 'tools/installer/**', 'web/package-lock.json', 'xcss-web-build.json', '.github/workflows/ci.yml') }}
       - name: Discard cached first-party candidate products
         run: |
           cargo clean --package xscs --release --target "$SERVER_TARGET"
@@ -250,7 +252,7 @@ jobs:
         with:
           path: ${{ runner.temp }}/install-inventory-tools
           key: xscs-inventory-tools-v1-${{ runner.os }}-${{ runner.arch }}-rust-1.99.0-audit-0.22.2-cyclonedx-0.5.9-${{ steps.release_environment.outputs.fingerprint }}-${{ hashFiles('.github/workflows/ci.yml') }}
-      - name: Prepare real pinned installer and inventory tools
+      - name: Prepare product-local installer and pinned inventory tools
         id: install_tools
         shell: bash
         env:
@@ -269,14 +271,8 @@ jobs:
           cargo audit --version | grep -Fx 'cargo-audit-audit 0.22.2'
           cargo cyclonedx --version | grep -Fx 'cargo-cyclonedx-cyclonedx 0.5.9'
           printf '%s\n' "$tools/bin" >> "$GITHUB_PATH"
-          revision="$(python3 -I -B -c 'import pathlib,re; raw=pathlib.Path("config/xssi.lock").read_text(encoding="ascii"); match=re.fullmatch(r"git_rev=([0-9a-f]{40})\n",raw); assert match and match[1]!="0"*40; print(match[1])')"
-          installer="$RUNNER_TEMP/install-xssi"
-          git init --quiet "$installer"
-          git -C "$installer" remote add origin https://github.com/isarmg/xssi.git
-          git -C "$installer" fetch --quiet --depth=1 origin "$revision"
-          git -C "$installer" checkout --quiet --detach FETCH_HEAD
-          [[ "$(git -C "$installer" rev-parse HEAD)" == "$revision" ]]
-          [[ -z "$(git -C "$installer" status --porcelain=v1 --untracked-files=all)" ]]
+          installer="$GITHUB_WORKSPACE/tools/installer"
+          python3 -I -B "$installer/scripts/verify-foundation.py"
           test -f "$installer/scripts/package-installed-candidate.py"
           test -f "$installer/tests/installed_lifecycle.py"
           mkdir -m 0700 "$RUNNER_TEMP/install-metadata"
@@ -293,7 +289,7 @@ jobs:
       - name: Build the source-bound release Server once
         id: release_binary
         env:
-          XSSI_BUILD_TOOLS_DIR: ${{ runner.temp }}/install-xssi
+          XSSI_BUILD_TOOLS_DIR: ${{ github.workspace }}/tools/installer
           XSSI_BUILD_METADATA_DIR: ${{ runner.temp }}/install-metadata
           XSSI_FRONTEND_METADATA_FILE: ${{ runner.temp }}/install-metadata/frontend.json
           XSCS_SOURCE_REVISION: ${{ github.sha }}
@@ -317,12 +313,12 @@ jobs:
         run: |
           bash scripts/package-installed-candidate.sh \
             "$CARGO_TARGET_DIR/$SERVER_TARGET/release/xscs" \
-            "$RUNNER_TEMP/install-metadata" "$RUNNER_TEMP/install-xssi" "$RUNNER_TEMP/install-candidate"
+            "$RUNNER_TEMP/install-metadata" "$GITHUB_WORKSPACE/tools/installer" "$RUNNER_TEMP/install-candidate"
       - name: Exercise production TLS authentication and installed systemd lifecycle
         shell: bash
         run: |
           set -euo pipefail
-          installer="$RUNNER_TEMP/install-xssi"
+          installer="$GITHUB_WORKSPACE/tools/installer"
           candidates=("$RUNNER_TEMP/install-candidate"/xscs-*-linux-x86_64.tar.gz)
           [[ ${#candidates[@]} == 1 && -f "${candidates[0]}" ]]
           sudo env GITHUB_ACTIONS="$GITHUB_ACTIONS" RUNNER_ENVIRONMENT="$RUNNER_ENVIRONMENT" \

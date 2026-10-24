@@ -1,6 +1,6 @@
 # 部署与日常运维
 
-获取与目标 Linux x86_64 GNU 对应的正式发行包，执行任何载荷前核对归档 SHA-256、包内 `share/package.json`、`share/package.sha256` 和完整文件清单。完整安装、只读维护与升级流程由独立 [XSSI](https://github.com/isarmg/xssi)维护；产品字段与目录差异见[配置](configuration.md)。
+获取与目标 Linux x86_64 GNU 对应的正式发行包，执行任何载荷前核对归档 SHA-256、包内 `share/package.json`、`share/package.sha256` 和完整文件清单。完整安装、只读维护与升级工具随本包交付，源码位于本仓库的 [`tools/installer`](../tools/installer/README.md)，并与产品使用同一个提交。产品字段与目录差异见[配置](configuration.md)。
 
 安装工具准备服务账号、初始管理员、数据库、密钥和 systemd 配置，不自动启动或启用服务。管理员核对配置后手动运行 `systemctl start xscs.service`；是否开机自动运行由管理员决定。状态可通过 `systemctl status xscs.service` 及 `/readyz` 核对，存活不代表业务就绪。
 

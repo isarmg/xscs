@@ -78,7 +78,7 @@ fn config_cases(defaults: &Value) -> Vec<Value> {
     let mut development = defaults.clone();
     development["development"] = json!(true);
     development["bind"] = json!("0.0.0.0:8080");
-    cases.push(json!({"name":"development-loopback-required","value":development,"valid":false}));
+    cases.push(json!({"name":"development-explicit-bind","value":development,"valid":true}));
 
     for case in &cases {
         let mut value = defaults.clone();

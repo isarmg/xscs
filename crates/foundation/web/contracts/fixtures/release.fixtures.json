@@ -1,0 +1,41 @@
+{
+  "valid": [
+    {
+      "product": "xsos",
+      "version": "0.3.0",
+      "source_revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "target": "x86_64-unknown-linux-gnu",
+      "state_contract_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    }
+  ],
+  "invalid": [
+    {
+      "product": "xsos",
+      "version": "0.3.0",
+      "source_revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "target": "x86_64-unknown-linux-gnu",
+      "state_contract_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "upgrade_tool": "not-part-of-the-current-contract"
+    },
+    {
+      "product": "xsos",
+      "version": "0.3.0",
+      "source_revision": "unbound",
+      "target": "x86_64-unknown-linux-gnu",
+      "state_contract_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    },
+    {
+      "product": "xsos",
+      "version": "0.3.0",
+      "source_revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "target": "x86_64-unknown-linux-gnu",
+      "state_contract_sha256": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"
+    },
+    {
+      "product": "xsos",
+      "source_revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "target": "x86_64-unknown-linux-gnu",
+      "state_contract_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    }
+  ]
+}

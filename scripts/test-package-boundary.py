@@ -110,29 +110,35 @@ class PackageBoundaryTests(unittest.TestCase):
             module.stage_original_notices(staged)
             self.assertEqual((staged/"LICENSE").read_bytes(),(module.SOURCE/"LICENSE-APACHE").read_bytes())
 
-    def test_mutable_ambiguous_or_foreign_installer_sources_fail_before_building(self):
+    def test_dirty_or_foreign_installer_sources_fail_before_execution(self):
         with tempfile.TemporaryDirectory() as temporary:
-            root=Path(temporary);(root/"config").mkdir()
-            pin=root/"config/xssi.lock"
-            for invalid in ["git_rev=main\n","git_rev="+"0"*40+"\n",
-                            "git_rev="+"a"*40+"\n\n",
-                            "repository=https://example.test/xssi.git\ngit_rev="+"a"*40+"\n",
-                            "git_rev="+"a"*40+"\ngit_rev="+"b"*40+"\n"]:
-                pin.write_text(invalid)
-                with self.assertRaises(ValueError):module.pinned_installer(root)
-            pin.write_text("git_rev="+"a"*40+"\n")
-            self.assertEqual(module.pinned_installer(root),("https://github.com/isarmg/xssi.git","a"*40))
-    def test_public_fetch_preserves_transport_without_repository_tokens(self):
-        inherited={"XSSI_REPOSITORY_TOKEN":"fixture-read-only-token",
-                   "HTTPS_PROXY":"http://proxy.example.invalid",
-                   "SSL_CERT_FILE":"/fixture/trust.pem"}
+            parent=Path(temporary)
+            source,_=self.create_source(parent)
+            with self.assertRaises(ValueError):module.pinned_installer(source)
+            installer=source/'tools/installer'
+            (installer/'scripts').mkdir(parents=True)
+            marker=parent/'verifier-executed'
+            verifier=installer/'scripts/verify-foundation.py'
+            verifier.write_text('from pathlib import Path\nPath('+repr(str(marker))+').touch()\n')
+            with self.assertRaisesRegex(ValueError,'source changed'):module.pinned_installer(source)
+            self.assertFalse(marker.exists())
+            subprocess.run(['git','-C',str(source),'add','.'],check=True)
+            self.commit_source(source)
+            self.assertEqual(module.pinned_installer(source),installer)
+            self.assertTrue(marker.exists())
+            marker.unlink()
+            verifier.write_text(verifier.read_text()+'# changed source\n')
+            with self.assertRaisesRegex(ValueError,'source changed'):module.pinned_installer(source)
+            self.assertFalse(marker.exists())
+
+    def test_build_transport_configuration_is_kept_without_repository_tokens(self):
+        inherited={'XSSI_REPOSITORY_TOKEN':'fixture-read-only-token',
+                   'HTTPS_PROXY':'http://proxy.example.invalid','SSL_CERT_FILE':'/fixture/trust.pem'}
         with patch.dict(module.os.environ,inherited,clear=True):
-            environment=module.installer_fetch_environment()
-            self.assertNotIn("XSSI_REPOSITORY_TOKEN",environment)
-            self.assertEqual(environment["HTTPS_PROXY"],inherited["HTTPS_PROXY"])
-            self.assertEqual(environment["SSL_CERT_FILE"],inherited["SSL_CERT_FILE"])
-            self.assertEqual(environment["GIT_TERMINAL_PROMPT"],"0")
-            self.assertFalse(any("extraHeader" in value for value in environment.values()))
+            environment=module.build_environment()
+            self.assertNotIn('XSSI_REPOSITORY_TOKEN',environment)
+            self.assertEqual(environment['HTTPS_PROXY'],inherited['HTTPS_PROXY'])
+            self.assertEqual(environment['SSL_CERT_FILE'],inherited['SSL_CERT_FILE'])
 
     def test_build_and_fetch_children_do_not_receive_signing_authority(self):
         secrets={"XSSI_SIGNING_KEY":"/private/fixture-signing.pem",
@@ -146,7 +152,7 @@ class PackageBoundaryTests(unittest.TestCase):
                "REQUESTS_CA_BUNDLE":"/fixture/requests.pem",
                "NODE_EXTRA_CA_CERTS":"/fixture/node.pem"}
         with patch.dict(module.os.environ,{**secrets,**trust},clear=True):
-            environments=[module.build_environment(),module.installer_fetch_environment()]
+            environments=[module.build_environment()]
             with patch.object(module.subprocess,"run") as child:
                 child.return_value.stdout="fixture build output"
                 module.run(["cargo","build"])
@@ -183,8 +189,9 @@ class PackageBoundaryTests(unittest.TestCase):
                 module.stage_verified_server(binary,staged,"a"*40)
             self.assertFalse(staged.exists())
 
-    def test_installer_remains_external_to_the_runtime_repository(self):
+    def test_installer_is_product_source_without_a_runtime_reimplementation(self):
         root=SCRIPT.parents[1]
+        self.assertTrue((root/"tools/installer/install.sh").is_file())
         self.assertFalse((root/"install.sh").exists())
         self.assertFalse((root/"crates/server/src/release_bundle.rs").exists())
         text=SCRIPT.read_text()

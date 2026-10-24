@@ -1,0 +1,489 @@
+"""Bind rendered npm or vendored runtime inputs to the compiled Server payload."""
+import base64
+import hashlib
+import io
+import json
+import os
+from pathlib import Path
+import re
+import stat
+import tarfile
+import time
+import tomllib
+import urllib.request
+
+import release_sbom as sbom
+import product_sources
+from release_manifest import bounded
+
+MAX_ARCHIVE=256*1024*1024
+MAX_MODULES=16384
+MAX_OUTPUTS=16384
+MAX_CODE=4*1024*1024
+MAX_EDGES=131072
+
+
+def retain(stage,path,contents):
+    """Publish an exact resource without replacing a link or existing data."""
+    stage=sbom.physical_directory(stage)
+    path=sbom.relative(path)
+    if not isinstance(contents,bytes) or len(contents)>MAX_ARCHIVE:
+        raise ValueError('runtime build material exceeds its bound')
+    destination=stage/path
+    current=stage
+    for part in Path(path).parts[:-1]:
+        current/=part
+        try:current.mkdir(mode=0o755)
+        except FileExistsError:pass
+        info=current.lstat()
+        if not stat.S_ISDIR(info.st_mode) or getattr(info,'st_file_attributes',0)&0x400:
+            raise ValueError('runtime build material requires physical directories')
+    try:
+        descriptor=os.open(destination,os.O_WRONLY|os.O_CREAT|os.O_EXCL|getattr(os,'O_NOFOLLOW',0)|getattr(os,'O_BINARY',0),0o600)
+    except FileExistsError:
+        if bounded(destination,MAX_ARCHIVE)!=contents:
+            raise ValueError('runtime build material conflicts with an existing delivered resource')
+        return destination
+    with os.fdopen(descriptor,'wb') as output:
+        output.write(contents)
+        output.flush()
+        os.fsync(output.fileno())
+        if os.name=='nt':os.chmod(destination,0o644)
+        else:os.fchmod(output.fileno(),0o644)
+    return destination
+
+
+def public_https(url,redirect=False):
+    from urllib.parse import urlsplit
+    parsed=urlsplit(url)
+    # GitHub's public release assets redirect to expiring, queried HTTPS URLs.
+    # The source URL is canonical; every actual transport hop must retain TLS.
+    if parsed.scheme!='https' or not parsed.hostname or parsed.username or parsed.password or parsed.fragment or (parsed.query and not redirect):
+        raise ValueError('runtime source is not a public HTTPS distribution')
+
+
+class HTTPSRedirects(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self,request,response,code,message,headers,new_url):
+        public_https(new_url,redirect=True)
+        return super().redirect_request(request,response,code,message,headers,new_url)
+
+
+def download(url,expected=None):
+    public_https(url)
+    result=bytearray();deadline=time.monotonic()+600
+    with urllib.request.build_opener(HTTPSRedirects()).open(url,timeout=60) as response:
+        public_https(response.geturl(),redirect=True)
+        while True:
+            if time.monotonic()>=deadline:
+                raise TimeoutError('runtime source download exceeded its total time bound')
+            chunk=response.read(min(65536,MAX_ARCHIVE+1-len(result)))
+            if not chunk:break
+            result.extend(chunk)
+            if len(result)>MAX_ARCHIVE:
+                raise ValueError('runtime source archive exceeds its bound')
+    result=bytes(result)
+    if expected is not None and hashlib.sha256(result).hexdigest()!=expected:
+        raise ValueError('runtime upstream archive SHA-256 differs')
+    return result
+
+
+def output_inventory(entries,compiled=False):
+    if not isinstance(entries,list) or not 1<=len(entries)<=MAX_OUTPUTS:
+        raise ValueError('rendered output inventory is empty or exceeds its bound')
+    result={}
+    for item in entries:
+        sbom.fields(item,['path','sha256'],['size','content_type'] if compiled else [])
+        name=sbom.relative(item['path'])
+        if name in result:
+            raise ValueError('rendered output inventory repeats a path')
+        if 'size' in item and (type(item['size']) is not int or not 0<=item['size']<=sbom.MAX_BYTES):
+            raise ValueError('compiled resource has an invalid size')
+        result[name]=sbom.sha(item['sha256'])
+    return result
+
+
+def vendor_inventory(root):
+    """Source inventories have no release-control filename exclusions."""
+    root=sbom.physical_directory(root)
+    result={};total=0
+    def walk_error(error):raise error
+    for directory,directories,names in os.walk(root,followlinks=False,onerror=walk_error):
+        sbom.physical_directory(directory)
+        for name in directories:
+            sbom.physical_directory(Path(directory)/name)
+        for name in names:
+            path=Path(directory)/name
+            total+=path.lstat().st_size
+            if len(result)>=MAX_MODULES or total>MAX_ARCHIVE:
+                raise ValueError('runtime vendor source exceeds its aggregate bound')
+            result[sbom.relative(path.relative_to(root).as_posix())]=sbom.digest(path)
+    return result
+
+
+class Packages:
+    def __init__(self,root,product_root=None):
+        self.root=root
+        self.product_root=Path(product_root) if product_root is not None else root.parent
+        lock=sbom.load(root/'package-lock.json') if (root/'package-lock.json').exists() else {'lockfileVersion':3,'packages':{}}
+        if lock.get('lockfileVersion')!=3 or not isinstance(lock.get('packages'),dict):
+            raise ValueError('runtime npm graph requires the exact current lock format')
+        self.lock=lock['packages'];self.loaded={};self.vendors={};self.archive_bytes=0;self.expanded_bytes=0
+
+    def vendor(self,path):
+        """Require an exact file map bound to its original distribution."""
+        path=sbom.relative(path)
+        if path in self.vendors:return self.vendors[path]
+        source=sbom.load(self.root/path/'SOURCE.json')
+        if 'base_revision' in source:
+            return self.git_vendor(path,source)
+        sbom.fields(source,['format','package','version','license','origin','files','npm'])
+        if type(source['format'])is not int or source['format']!=1 or not isinstance(source['files'],dict):
+            raise ValueError('runtime vendor requires a current exact source inventory')
+        npm=source.get('npm');sbom.fields(npm,['name','version','license','resolved','integrity','archive_files'])
+        for key in ('name','version','license','resolved','integrity'):sbom.text(npm[key])
+        public_https(npm['resolved'])
+        if source['origin']!=npm['resolved']:
+            raise ValueError('runtime vendor origin differs from its original archive')
+        if source.get('package')!=npm['name'] or source.get('version')!=npm['version'] or source.get('license')!=npm['license']:
+            raise ValueError('runtime vendor identity differs from its original distribution declaration')
+        mapping=npm['archive_files']
+        if not isinstance(mapping,dict) or not source['files'] or len(source['files'])>MAX_MODULES or mapping.keys()!=source['files'].keys():
+            raise ValueError('runtime vendor must map every source input to its original archive')
+        expected={sbom.relative(name):sbom.sha(value) for name,value in source['files'].items()}
+        for name in mapping.values():sbom.relative(name)
+        actual=vendor_inventory(self.root/path)
+        actual.pop('SOURCE.json',None)
+        if actual!=expected:
+            raise ValueError('runtime vendor differs from its exact source inventory')
+        self.vendors[path]=npm
+        return npm
+
+    def git_vendor(self,path,source):
+        """Verify imported code in the product commit; upstream data is attribution."""
+        sbom.fields(source,['format','package','version','origin','base_revision','source_directory','files'])
+        contract=(source['package'],source['source_directory'])
+        if (source['format'] != 1 or type(source['format']) is not int
+                or source['origin'] != 'https://github.com/isarmg/xcss'
+                or contract not in (('xcss-web','web/xcss-web'),('@xcss/web','web'))
+                or not isinstance(source['base_revision'],str)
+                or not re.fullmatch('[0-9a-f]{40}',source['base_revision'])):
+            raise ValueError('runtime import attribution differs from its recorded source contract')
+        sbom.text(source['version'])
+        if not isinstance(source['files'],dict) or not 1 <= len(source['files']) <= MAX_MODULES:
+            raise ValueError('runtime import requires a bounded exact source inventory')
+        expected={sbom.relative(name):sbom.sha(value) for name,value in source['files'].items()}
+        if not ({'LICENSE'} if contract[0]=='@xcss/web' else {'Cargo.toml','LICENSE'}) <= expected.keys():
+            raise ValueError('runtime import lacks its package identity or original license')
+        actual=vendor_inventory(self.root/path);actual.pop('SOURCE.json',None)
+        if actual != expected:
+            raise ValueError('runtime import differs from its exact source inventory')
+        product,revision=product_sources.identity(self.product_root)
+        relative=(self.root/path).relative_to(product).as_posix()
+        imported=product_sources.committed_file(product,revision,relative+'/SOURCE.json')
+        files={name:product_sources.committed_file(product,revision,relative+'/'+name) for name in expected}
+        if contract[0]=='xcss-web':
+            package=tomllib.loads(files['Cargo.toml'].decode()).get('package')
+            if not isinstance(package,dict) or any(package.get(key)!=value for key,value in
+                    [('name',source['package']),('version',source['version']),('license','Apache-2.0')]):
+                raise ValueError('runtime import package identity or license differs')
+        else:
+            package={'name':source['package'],'version':source['version'],'license':'Apache-2.0'}
+        if not files['LICENSE'].strip():
+            raise ValueError('runtime import original license is empty')
+        package={key:sbom.text(package[key]) for key in ('name','version','license')}
+        self.vendors[path]={**package,'archive_files':{name:name for name in files}}
+        url='https://raw.githubusercontent.com/isarmg/xscs/'+revision+'/'+relative+'/SOURCE.json'
+        self.loaded[path]={'package':package,'files':files,'kind':'product',
+            'source':{'url':url,'sha256':hashlib.sha256(imported).hexdigest()},
+            'import_record':{'path':relative+'/SOURCE.json','bytes':imported}}
+        return self.vendors[path]
+
+    def archive(self,path):
+        path=sbom.relative(path)
+        if path in self.loaded:return self.loaded[path]
+        vendor=self.vendors.get(path)
+        if vendor is None and not path.startswith('node_modules/'):
+            vendor=self.vendor(path)
+            if path in self.loaded:return self.loaded[path]
+        if vendor is not None:
+            package={key:vendor[key] for key in ('name','version','license')};lock=vendor
+        else:
+            if path not in self.lock:raise ValueError('rendered npm package has no exact lock owner')
+            package=sbom.load(self.root/path/'package.json');lock=self.lock[path]
+        if package['version']!=lock['version']:
+            raise ValueError('rendered npm package differs from its locked version')
+        archive=download(lock['resolved'])
+        self.archive_bytes+=len(archive)
+        if self.archive_bytes>MAX_ARCHIVE:
+            raise ValueError('runtime npm source archives exceed their aggregate bound')
+        algorithm,encoded=lock['integrity'].split('-',1)
+        if algorithm not in ('sha256','sha512') or hashlib.new(algorithm,archive).digest()!=base64.b64decode(encoded,validate=True):
+            raise ValueError('actual npm distribution differs from its lock integrity')
+        files={};total=0;entries=0
+        with tarfile.open(fileobj=io.BytesIO(archive),mode='r:gz') as contents:
+            for item in contents:
+                entries+=1
+                if entries>MAX_MODULES:
+                    raise ValueError('npm distribution entry count exceeds its bound')
+                if item.isdir():
+                    name=item.name.removesuffix('/')
+                    if name!='package':
+                        if not name.startswith('package/'):
+                            raise ValueError('npm distribution contains an uncontrolled entry')
+                        sbom.relative(name.removeprefix('package/'))
+                    continue
+                if not item.isfile() or not item.name.startswith('package/'):
+                    raise ValueError('npm distribution contains an uncontrolled entry')
+                name=sbom.relative(item.name.removeprefix('package/'))
+                if type(item.size)is not int or item.size<0:
+                    raise ValueError('npm distribution file size is invalid')
+                total+=item.size
+                if name in files or len(files)>=16384 or item.size>MAX_ARCHIVE or total>MAX_ARCHIVE or self.expanded_bytes+total>MAX_ARCHIVE:
+                    raise ValueError('npm distribution exceeds its extraction bound')
+                files[name]=contents.extractfile(item).read(item.size+1)
+                if len(files[name])!=item.size:
+                    raise ValueError('npm distribution file size differs')
+        self.expanded_bytes+=total
+        original=json.loads(files['package.json'],object_pairs_hook=unique_fields)
+        if original['name']!=package['name'] or original['version']!=package['version']:
+            raise ValueError('actual npm distribution identity differs from the rendered package')
+        if original.get('license')!=package.get('license'):
+            raise ValueError('rendered npm license metadata differs from its original distribution')
+        if vendor is not None:
+            for name,original_name in vendor['archive_files'].items():
+                content=files.get(original_name)
+                if content is None or hashlib.sha256(content).hexdigest()!=sbom.digest(self.root/path/name):
+                    raise ValueError('runtime vendor input differs from its original npm distribution')
+        result={'package':package,'files':files,'source':{'url':lock['resolved'],'sha256':hashlib.sha256(archive).hexdigest()}}
+        self.loaded[path]=result;return result
+
+    def owner(self,path):
+        current=Path(path).parent
+        while current!=Path('.'):
+            name=current.as_posix()
+            if name in self.lock and name.startswith('node_modules/'):
+                return name
+            if (self.root/current/'SOURCE.json').exists():
+                self.vendor(name)
+                return name
+            current=current.parent
+        if path.startswith('node_modules/') or 'vendor' in Path(path).parts:
+            raise ValueError('rendered third-party input has no exact source owner')
+        return None
+
+    def sdk_fonts(self):
+        candidates=[path for path in self.vendors if self.vendors[path]['name']=='@xcss/web']
+        for path in ('vendor/xcss','web/vendor/xcss'):
+            if path not in candidates and (self.root/path/'SOURCE.json').exists() and self.vendor(path)['name']=='@xcss/web':
+                candidates.append(path)
+        if len(candidates)>1:raise ValueError('font inputs have ambiguous vendored source owners')
+        if candidates:
+            owner=candidates[0];self.archive(owner)
+            mapping=self.vendors[owner]['archive_files']
+            prefix='web-fonts/' if self.loaded[owner].get('kind') in ('git','product') else 'dist/web-fonts/'
+            original=prefix+'provenance.json'
+            matches=[name for name,value in mapping.items() if value==original]
+            if len(matches)!=1:raise ValueError('vendored font provenance requires one original archive input')
+            return owner,(self.root/owner/matches[0]).parent,prefix
+        owner='node_modules/@xcss/web';self.archive(owner)
+        return owner,self.root/owner/'dist/web-fonts','dist/web-fonts/'
+
+
+def original_notices(package,stage,name):
+    license_=package['package'].get('license')
+    # Preserve the reviewed upstream dual-license declaration and both original
+    # license documents rather than relabeling either document as one branch.
+    if license_ not in ('MIT','Apache-2.0','BSD-2-Clause','BSD-3-Clause','ISC','(MPL-2.0 OR Apache-2.0)'):
+        raise ValueError('rendered npm package '+package['package']['name']+' requires an explicitly reviewed upstream license')
+    notices={path:content for path,content in package['files'].items()
+        if '/' not in path and re.fullmatch(r'(LICENSE|LICENCE|COPYING|NOTICE|THIRD-PARTY-LICENSE)([._-].*)?',path,re.I)}
+    if not any(re.match(r'LICENSE|LICENCE|COPYING',path,re.I) for path in notices):
+        raise ValueError('rendered npm package '+package['package']['name']+' has no original upstream license text')
+    result=[]
+    for path,content in sorted(notices.items()):
+        if not content.strip():raise ValueError('upstream runtime notice is empty')
+        relative='share/licenses/frontend/'+name+'/'+path
+        destination=retain(stage,relative,content)
+        result.append({'name':license_,'path':relative,'sha256':sbom.digest(destination)})
+    return result
+
+
+def unique_fields(pairs):
+    result={}
+    for key,value in pairs:
+        if key in result:raise ValueError('runtime source metadata repeats a field')
+        result[key]=value
+    return result
+
+
+def rendered_components(source_root,root,stage,data,recorded,target_files):
+    packages=Packages(root,source_root);owners={};sources={};outputs={};aliases={}
+    if not isinstance(data['modules'],list) or not 1<=len(data['modules'])<=MAX_MODULES:
+        raise ValueError('rendered module graph is empty or exceeds its bound')
+    covered_outputs=set();edge_count=0
+    for index,item in enumerate(data['modules']):
+        sbom.fields(item,['path','sha256','files','imports'],['code','virtual_id','generated_runtime'])
+        if not isinstance(item['files'],list) or not item['files'] or len(item['files'])>MAX_OUTPUTS or any(type(name)is not str or name not in recorded for name in item['files']) or len(set(item['files']))!=len(item['files']):
+            raise ValueError('rendered module graph is not bound to the actual output set')
+        if not isinstance(item['imports'],list) or len(item['imports'])>MAX_MODULES or any(type(child)is not int or not 0<=child<len(data['modules']) for child in item['imports']) or len(set(item['imports']))!=len(item['imports']):
+            raise ValueError('rendered module graph is not bound to the actual output set')
+        edge_count+=len(item['imports'])
+        if edge_count>MAX_EDGES:
+            raise ValueError('rendered module dependency edges exceed their aggregate bound')
+        covered_outputs.update(item['files'])
+        path=item['path']
+        if path is None:
+            virtual=item.get('virtual_id')
+            if virtual not in ('\0vite/preload-helper.js','\0vite/modulepreload-polyfill.js','\0rolldown/runtime.js'):
+                raise ValueError('rendered virtual runtime has no current source provider')
+            owner='node_modules/rolldown' if virtual=='\0rolldown/runtime.js' else 'node_modules/vite'
+            package=packages.archive(owner)
+            if virtual=='\0rolldown/runtime.js':
+                provider=item.get('generated_runtime')
+                sbom.fields(provider,['provider','version','module'])
+                if provider!={'provider':'rolldown','version':package['package']['version'],'module':virtual}:
+                    raise ValueError('actual generated runtime provider differs from its receipt')
+            elif 'generated_runtime' in item:
+                raise ValueError('generated runtime provider differs from its virtual module')
+            if type(item.get('code'))is not str or not item['code'] or len(item['code'].encode())>MAX_CODE:
+                raise ValueError('generated runtime helper is empty or exceeds its bound')
+            code=item['code'].encode()
+            if hashlib.sha256(code).hexdigest()!=sbom.sha(item['sha256']) or str(root).encode() in code:
+                raise ValueError('generated runtime helper differs or leaks a private build path')
+            path='share/build-inputs/frontend/'+item['virtual_id'].removeprefix('\0').replace('/','-')
+            destination=retain(stage,path,code)
+            source={'path':path,'sha256':sbom.digest(destination)}
+            # This generated helper is retained alongside its exact provider;
+            # its source lives in the delivery, not the npm source tree.
+            group=owner+'#generated';aliases[group]=owner
+        else:
+            if any(key in item for key in ('code','virtual_id','generated_runtime')):
+                raise ValueError('physical runtime input cannot masquerade as a generated helper')
+            path=sbom.relative(path)
+            if sbom.digest(root/path)!=sbom.sha(item['sha256']):
+                raise ValueError('actual rendered input changed after the build')
+            owner=packages.owner(path)
+            if owner is None:continue
+            package=packages.archive(owner)
+            name=Path(path).relative_to(owner).as_posix()
+            if owner in packages.vendors:name=packages.vendors[owner]['archive_files'][name]
+            if package['files'].get(name) is None or hashlib.sha256(package['files'][name]).hexdigest()!=item['sha256']:
+                raise ValueError('rendered npm input differs from its original distribution')
+            group=owner
+            source={'path':(root/path).relative_to(source_root).as_posix(),'sha256':item['sha256']}
+        owners[index]=group;sources.setdefault(group,[]).append(source)
+        outputs.setdefault(group,set()).update(item['files'])
+    if any(name.endswith(('.js','.mjs','.cjs')) and name not in covered_outputs for name in recorded):
+        raise ValueError('actual compiled JavaScript has no rendered module evidence')
+    components=[];refs={}
+    for owner in sources:
+        package=packages.archive(owner.split('#',1)[0])
+        name=package['package']['name'];version=package['package']['version']
+        ref='urn:rendered-'+package.get('kind','npm')+':'+name+':'+version+(':'+owner.split('#',1)[1] if '#' in owner else '')
+        refs[owner]=ref
+        notice=packages.archive(aliases.get(owner,owner.split('#',1)[0]))
+        if package.get('kind')=='product':
+            imported=package['import_record']
+            retained='share/build-inputs/frontend/imports/'+name.replace('/','-')+'-SOURCE.json'
+            retain(stage,retained,imported['bytes'])
+            sources[owner].append({'path':imported['path'],'sha256':hashlib.sha256(imported['bytes']).hexdigest()})
+        licenses=original_notices(notice,stage,name.replace('/','-'))
+        targets=target_files(sorted(outputs[owner]))
+        components.append({'ref':ref,'type':'library','name':name+(' generated runtime' if owner in aliases else ''),
+            'version':version,'source':package['source'],'licenses':licenses,'delivery':'embedded','files':targets,
+            'dependencies':[], 'embedding':{'kind':'compiled-resource','input_root':'stage' if '#' in owner else 'build',
+                'source_files':sources[owner], 'target_files':targets}})
+    by_ref={item['ref']:item for item in components}
+    for index,owner in owners.items():
+        pending=list(data['modules'][index]['imports']);visited={index};dependencies=set()
+        while pending:
+            child=pending.pop()
+            if child in visited:continue
+            visited.add(child)
+            if child in owners and owners[child]!=owner:
+                dependencies.add(refs[owners[child]])
+            else:
+                pending.extend(data['modules'][child]['imports'])
+        by_ref[refs[owner]]['dependencies']=sorted(set(by_ref[refs[owner]]['dependencies'])|dependencies)
+    return components,packages
+
+
+def generate(source_root,stage,metadata,binary):
+    source_root=Path(source_root).resolve(strict=True);stage=Path(stage).resolve(strict=True)
+    specification=sbom.load(source_root/'xcss-web-build.json')
+    directory=specification['web']['directory']
+    if directory!='.':sbom.relative(directory)
+    root=(source_root/directory).resolve(strict=True)
+    if not root.is_relative_to(source_root):raise ValueError('runtime Web build root escaped the source')
+    data=sbom.load(metadata);sbom.fields(data,['format_version','distribution','modules','outputs'],['rust'])
+    if type(data['format_version'])is not int or data['format_version']!=1:
+        raise ValueError('rendered Web inventory has an unsupported version')
+    distribution=root/sbom.relative(data['distribution'])
+    actual=sbom.files(distribution)
+    recorded=output_inventory(data['outputs'])
+    if recorded!=actual:
+        raise ValueError('rendered outputs differ from the actual compiled Web files')
+    compiled=sbom.load(stage/'share/web-assets.json')
+    sbom.fields(compiled,['format','files'])
+    if compiled['format']!='web-assets-v1':raise ValueError('current compiled Web receipt is unavailable')
+    compiled_files=output_inventory(compiled['files'],compiled=True)
+    compiled_hashes=set(compiled_files.values())
+    if recorded!=compiled_files or any('size' in item and item['size']!=(distribution/item['path']).stat().st_size for item in compiled['files']):
+        raise ValueError('rendered Web output is not present in the actual compiled Server')
+    if any(name.endswith('.wasm') for name in recorded):
+        if 'rust' not in data:
+            raise ValueError('compiled WASM has no actual Rust runtime graph receipt')
+        provenance='assets/xcss-web-build.json'
+        if provenance not in recorded:
+            raise ValueError('compiled WASM has no embedded Rust build provenance')
+        embedded=sbom.load(distribution/provenance).get('rust_runtime')
+        if embedded!={key:value for key,value in data['rust'].items() if key!='outputs'}:
+            raise ValueError('Rust runtime receipt differs from the compiled Server provenance')
+        from wasm_receipt import generate as wasm_inventory
+        wasm_inventory(data['rust'],source_root,stage,recorded,binary)
+    elif 'rust' in data:
+        raise ValueError('Rust runtime receipt has no actual WASM output')
+    target={'path':sbom.relative(binary),'sha256':sbom.digest(stage/binary),'archive_entry':None}
+    components,packages=rendered_components(source_root,root,stage,data,recorded,lambda names:[target])
+    sdk_owner,font_directory,font_prefix=packages.sdk_fonts()
+    sdk=packages.archive(sdk_owner)
+    provenance_raw=sdk['files'][font_prefix+'provenance.json']
+    provenance=json.loads(provenance_raw,object_pairs_hook=unique_fields)
+    provenance_path=font_directory/'provenance.json'
+    if sbom.digest(provenance_path)!=hashlib.sha256(provenance_raw).hexdigest():
+        raise ValueError('font source provenance differs from its original distribution')
+    retain(stage,'share/build-inputs/frontend/font-provenance.json',provenance_raw)
+    font_files=[]
+    for name,expected in provenance['assets'].items():
+        if not name.endswith('.woff2'):continue
+        original=sdk['files'][font_prefix+name]
+        if hashlib.sha256(original).hexdigest()!=expected or expected not in compiled_hashes:
+            raise ValueError('current complete font differs from its original source or compiled resource')
+        path=font_directory/name
+        if sbom.digest(path)!=expected:raise ValueError('compiled font input differs from its provenance')
+        font_files.append({'path':path.relative_to(source_root).as_posix(),'sha256':expected})
+    licenses=[]
+    for name in ('OFL.txt','CJK-LICENSE.txt','NORMAL-LICENSE.txt'):
+        content=sdk['files'][font_prefix+name]
+        if hashlib.sha256(content).hexdigest()!=provenance['assets'][name]:raise ValueError('font license differs from its provenance')
+        path='share/licenses/frontend/maple-font/'+name;destination=retain(stage,path,content)
+        licenses.append({'name':'SIL Open Font License 1.1','path':path,'sha256':sbom.digest(destination)})
+    if not font_files:
+        raise ValueError('complete font component has no actual compiled font inputs')
+    font_files.append({'path':provenance_path.relative_to(source_root).as_posix(),'sha256':sbom.digest(provenance_path)})
+    cjk_source={'url':provenance['cjk']['upstream'].replace('/tag/','/download/')+'/'+provenance['cjk']['archive'],'sha256':provenance['cjk']['sha256']}
+    for original in (provenance['latin'],cjk_source):
+        download(original['url'],original['sha256'])
+    cjk_ref='urn:maple-font:cjk:'+sbom.sha(cjk_source['sha256'])
+    components.append({'ref':cjk_ref,'type':'data','name':'Maple Mono CJK font inputs',
+        'version':provenance['cjk']['upstream'].rsplit('/tag/',1)[-1],'source':cjk_source,
+        'licenses':[item for item in licenses if item['path'].endswith('/CJK-LICENSE.txt')],'delivery':'embedded','files':[target],'dependencies':[],
+        'embedding':{'kind':'compiled-resource','input_root':'build','source_files':font_files,'target_files':[target]}})
+    components.append({'ref':'urn:maple-font:complete:'+provenance['source_commit'],'type':'data','name':'Maple Mono complete fonts',
+        'version':provenance['source_version'],'source':{'url':provenance['latin']['url'],'sha256':provenance['latin']['sha256']},
+        'licenses':licenses,'delivery':'embedded','files':[target],'dependencies':[cjk_ref],
+        'embedding':{'kind':'compiled-resource','input_root':'build','source_files':font_files,'target_files':[target]}})
+    external=stage/'share/external-components.json';receipt=sbom.load(external)
+    receipt['components'].extend(components)
+    external.write_text(json.dumps(receipt,sort_keys=True,indent=2)+'\n');external.chmod(0o644)
+    return components

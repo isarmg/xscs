@@ -1,0 +1,73 @@
+[package]
+"version" = "1.0.0"
+"edition" = "2024"
+"rust-version" = "1.99"
+"authors" = ["sarmg <isarmg@163.com>"]
+"license" = "Apache-2.0"
+"repository" = "https://github.com/isarmg/xscs"
+"name" = "xscs-foundation"
+publish = false
+"description" = "Linux AMD64 server support monolith"
+
+[lib]
+name = "xcss"
+"path" = "src/lib.rs"
+
+[features]
+"default" = ["tracing"]
+"tracing" = []
+
+[target.'cfg(all(target_os = "linux", target_arch = "x86_64", target_env = "gnu"))'.dependencies]
+"schemars" = "=1.2.3"
+"argon2" = { "version" = "0.5", "features" = ["std"] }
+"base64" = { "version" = "0.23.1" }
+"getrandom" = { "version" = "0.4" }
+"hmac" = { "version" = "0.13.0" }
+"sha2" = { "version" = "0.11.0" }
+"subtle" = { "version" = "2.6" }
+"thiserror" = { "version" = "2" }
+"axum" = { "version" = "0.8.9" }
+"bytes" = { "version" = "1" }
+"http-body-util" = { "version" = "0.1" }
+"mime" = { "version" = "0.3" }
+"tokio" = { "version" = "1.53.2", "features" = ["fs", "io-util", "macros", "net", "rt-multi-thread", "signal", "sync", "test-util", "time"] }
+"serde" = { "version" = "1", "features" = ["derive"] }
+"serde_json" = { "version" = "1" }
+"async-trait" = { "version" = "0.1" }
+"http-body" = { "version" = "1" }
+"hyper" = { "version" = "1", "features" = ["http1", "server"] }
+"tower" = { "version" = "0.5", "features" = ["util"] }
+"sqlx" = { "version" = "=0.9.0", "default-features" = false, "features" = ["runtime-tokio", "sqlite-bundled"] }
+"rustix" = { "version" = "1.1.5", "features" = ["event", "fs", "process"] }
+"futures-executor" = { "version" = "0.3" }
+"libsqlite3-sys" = { "version" = "=0.37.0", "features" = ["bundled"] }
+"tempfile" = { "version" = "3" }
+"libc" = "0.2"
+"futures-util" = { "version" = "0.3", "default-features" = false, "features" = ["std"] }
+"hyper-util" = { "version" = "0.1", "features" = ["service", "tokio"] }
+"tokio-util" = { "version" = "0.7", "features" = ["rt"] }
+"socket2" = { "version" = "0.6" }
+"reqwest" = { "version" = "0.13.5", "default-features" = false, "features" = ["rustls"] }
+"serde_path_to_error" = { "version" = "0.1.20" }
+"chrono" = { "version" = "0.4", "default-features" = false, "features" = ["clock", "std"] }
+"tracing" = { "version" = "0.1" }
+"tracing-subscriber" = { "version" = "0.3", "default-features" = false, "features" = ["registry"] }
+"zeroize" = { "version" = "1.8" }
+"aes-gcm" = { "version" = "0.11.1" }
+"hkdf" = { "version" = "0.13.0" }
+"url" = { "version" = "2" }
+"uuid" = { "version" = "1", "features" = ["v4"] }
+"anyhow" = { "version" = "1" }
+"http" = { "version" = "1" }
+
+[target.'cfg(all(target_os = "linux", target_arch = "x86_64", target_env = "gnu"))'.dev-dependencies]
+"tokio-rustls" = "0.26.5"
+
+[lints.rust]
+"unsafe_code" = "deny"
+"unsafe_op_in_unsafe_fn" = "deny"
+
+[lints.clippy]
+"dbg_macro" = "deny"
+"todo" = "deny"
+"undocumented_unsafe_blocks" = "deny"

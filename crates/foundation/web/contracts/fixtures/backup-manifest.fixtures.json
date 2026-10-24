@@ -1,0 +1,138 @@
+{
+  "valid": [
+    {
+      "manifest_version": 1,
+      "tool_version": "0.3.0",
+      "product": "xscs",
+      "application_version": "0.3.0",
+      "schema_identity": {
+        "application": "xscs",
+        "application_version": "0.3.0",
+        "schema_revision": 4,
+        "schema_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "created_at_epoch_seconds": 1788134400,
+      "external_requirements": [
+        {
+          "kind": "credentials-key",
+          "kid": "sunshine-primary",
+          "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "algorithm": "aes-256-gcm",
+          "envelope_version": 1
+        }
+      ],
+      "resources": [
+        {
+          "name": "database",
+          "kind": "sqlite",
+          "path": "database.sqlite3",
+          "bytes": 4096,
+          "files": 1,
+          "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+        }
+      ]
+    },
+    {
+      "manifest_version": 1,
+      "tool_version": "0.3.0",
+      "product": "xszs",
+      "application_version": "0.3.0",
+      "schema_identity": null,
+      "created_at_epoch_seconds": 0,
+      "external_requirements": [],
+      "resources": [
+        {
+          "name": "blobs",
+          "kind": "data-tree",
+          "path": "data/blobs",
+          "bytes": 0,
+          "files": 1,
+          "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+        }
+      ]
+    }
+  ],
+  "invalid": [
+    {
+      "manifest_version": 1,
+      "tool_version": "0.3.0",
+      "product": "xsos",
+      "application_version": "0.3.0",
+      "schema_identity": null,
+      "created_at_epoch_seconds": 1,
+      "external_requirements": [],
+      "resources": []
+    },
+    {
+      "manifest_version": 1,
+      "tool_version": "0.3.0",
+      "product": "xsos",
+      "application_version": "0.3.0",
+      "schema_identity": null,
+      "created_at_epoch_seconds": 1,
+      "external_requirements": [
+        {
+          "kind": "credentials-key",
+          "kid": "host-primary",
+          "algorithm": "aes-256-gcm",
+          "envelope_version": 1
+        }
+      ],
+      "resources": [
+        {
+          "name": "database",
+          "kind": "sqlite",
+          "path": "database.sqlite3",
+          "bytes": 4096,
+          "files": 1,
+          "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+        }
+      ]
+    },
+    {
+      "manifest_version": 1,
+      "tool_version": "0.3.0",
+      "product": "xsos",
+      "application_version": "0.3.0",
+      "schema_identity": null,
+      "created_at_epoch_seconds": 1,
+      "external_requirements": [],
+      "resources": [
+        {
+          "name": "database",
+          "kind": "sqlite",
+          "path": "database.sqlite3",
+          "bytes": 4096,
+          "files": 0,
+          "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "required": true
+        }
+      ]
+    },
+    {
+      "manifest_version": 1,
+      "tool_version": "0.3.0",
+      "product": "xsos",
+      "application_version": "0.3.0",
+      "schema_identity": {
+        "application": "xsos",
+        "application_version": "0.3.0",
+        "schema_revision": 1,
+        "schema_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "migration": 2
+      },
+      "created_at_epoch_seconds": 9007199254740992,
+      "external_requirements": [],
+      "resources": [
+        {
+          "name": "database",
+          "kind": "other",
+          "path": "",
+          "bytes": -1,
+          "files": 1,
+          "sha256": "not-a-sha"
+        }
+      ]
+    }
+  ]
+}

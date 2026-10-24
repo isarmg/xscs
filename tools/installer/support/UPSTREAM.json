@@ -1,0 +1,24 @@
+{
+  "origin": "https://github.com/isarmg/xcsc",
+  "revision": "6fca4299f5c34a79db1c7bd4e889b418d2a58e2d",
+  "files": {
+    "LICENSE": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+    "src/contracts/mod.rs": "b3773ab71cc2627ebdd28285a68b3105de9af1fb724d8b210b63acc56b5f518b",
+    "src/fs_safety/linux.rs": "f88ca6c8b86a2f79a4c2b0218c9e8bad5a010ab0de77f32b5d07983b43e303c8",
+    "src/fs_safety/mod.rs": "2bcd95679a6b1a9eae70606d1239581f53540f23a6565a2fe680a39baaf41269",
+    "src/fs_safety/unix.rs": "42bcd266c2cb8ef3176093c93b254e2ab8cd01190652fc10bc255742b6f7338c",
+    "src/schema_identity/fixtures/schema-fingerprint-v1.json": "640ef41a225c86e69e21751ec17cffe7884326665bf19403569d6b097ef52bdd",
+    "src/schema_identity/mod.rs": "dad858287ce818c7d27c41f5b9084f8b72bb92b4544e36d17731127eeaf3d4af",
+    "src/secret/mod.rs": "28250a6abe075389f01150aa6b60ec865303299c335b32ecb4778e8ea4df459b",
+    "src/secret_envelope/fixtures/current-envelope-v1.json": "03a37059fa6ef97093d64a7ebd2874f772d1536519e12ae68d54c74d861a919a",
+    "src/secret_envelope/mod.rs": "0068c001d96b841d6021c487d76debfa503503898977e3915bd289fd82187264",
+    "src/sqlite/blocking.rs": "b3d15336a1cdb9c7f1c9ad06a96d72640ad0392ca9cee720069992f4bc14efd0",
+    "src/sqlite/mod.rs": "67f1491a4cbebf47da197cd8f8e061677befca0011739d9569e808ea29be76cf",
+    "src/sqlite/native_limits.rs": "ab906f45f7a2069f8c2110b9efa0d8ec8ec6cc902eea677305e31589a79d9436",
+    "src/sqlite/native_security.rs": "03fdbd579a8476b8030a2aaf960a8c2f08a02fc8af83bf027d33c62650437b90",
+    "src/sqlite/tests.rs": "c1d76451a2bc90fa56efa9ccd99722fefccf33344f23ab146b4929c0026beed5",
+    "src/fs_safety/windows.rs": "9f65f60ba619a4fdfa44d941d9b2048c36b3fa63153af77068422c1a855f26c9",
+    "src/fs_safety/windows/tests.rs": "541e6104516185e29a71079d6a1ca23f2b2a5ba24c91be4cb1375bbc264256c2"
+  },
+  "maintenance": "Product-local source; historical import hashes are retained for attribution."
+}

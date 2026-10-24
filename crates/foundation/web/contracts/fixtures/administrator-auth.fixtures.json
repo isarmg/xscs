@@ -1,0 +1,155 @@
+{
+  "valid": [
+    {
+      "username": " Admin ",
+      "password": "correct horse battery staple"
+    },
+    {
+      "username": "A",
+      "password": "bounded wire candidate"
+    },
+    {
+      "username": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "password": "bounded wire candidate"
+    },
+    {
+      "authenticated": true,
+      "user_id": "018f1f4b-7a5d-7b5f-8d31-123456789abc",
+      "username": "admin.ops",
+      "role": "admin",
+      "csrf_token": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+    },
+    {
+      "authenticated": true,
+      "user_id": "018f1f4b-7a5d-7b5f-8d31-123456789abd",
+      "username": "admin..ops__primary--1",
+      "role": "admin",
+      "csrf_token": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+    }
+  ],
+  "invalid": [
+    {
+      "email": "admin@example.test",
+      "password": "correct horse battery staple"
+    },
+    {
+      "username": "",
+      "password": "bounded wire candidate"
+    },
+    {
+      "username": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "password": "bounded wire candidate"
+    },
+    {
+      "username": "admin\nops",
+      "password": "bounded wire candidate"
+    },
+    {
+      "username": "admin\u007fops",
+      "password": "bounded wire candidate"
+    },
+    {
+      "username": "管理员",
+      "password": "bounded wire candidate"
+    },
+    {
+      "username": "admin",
+      "password": "password",
+      "role": "admin"
+    },
+    {
+      "username": "admin",
+      "password": ""
+    },
+    {
+      "authenticated": true,
+      "user_id": "018f1f4b-7a5d-7b5f-8d31-123456789abc",
+      "username": "admin",
+      "role": "viewer",
+      "csrf_token": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+    },
+    {
+      "authenticated": true,
+      "user_id": "018f1f4b-7a5d-7b5f-8d31-123456789abc",
+      "username": "admin",
+      "role": "operator",
+      "csrf_token": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+    },
+    {
+      "authenticated": true,
+      "user_id": "has space",
+      "username": "admin",
+      "role": "admin",
+      "csrf_token": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+    },
+    {
+      "authenticated": true,
+      "user_id": "018f1f4b-7a5d-7b5f-8d31-123456789abc",
+      "username": "admin",
+      "role": "admin",
+      "csrf_token": "bad\ncsrf"
+    },
+    {
+      "authenticated": true,
+      "user_id": "018f1f4b-7a5d-7b5f-8d31-123456789abc",
+      "username": "Admin",
+      "role": "admin",
+      "csrf_token": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+    },
+    {
+      "authenticated": true,
+      "user_id": "018f1f4b-7a5d-7b5f-8d31-123456789abc",
+      "username": "ad",
+      "role": "admin",
+      "csrf_token": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+    },
+    {
+      "authenticated": true,
+      "user_id": "018f1f4b-7a5d-7b5f-8d31-123456789abc",
+      "username": ".admin",
+      "role": "admin",
+      "csrf_token": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+    },
+    {
+      "authenticated": true,
+      "user_id": "018f1f4b-7a5d-7b5f-8d31-123456789abc",
+      "username": "admin_",
+      "role": "admin",
+      "csrf_token": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+    },
+    {
+      "authenticated": true,
+      "user_id": "018f1f4b-7a5d-7b5f-8d31-123456789abc",
+      "username": "admin ops",
+      "role": "admin",
+      "csrf_token": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+    },
+    {
+      "authenticated": true,
+      "user_id": "018f1f4b-7a5d-7b5f-8d31-123456789abc",
+      "username": "admin@example.com",
+      "role": "admin",
+      "csrf_token": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+    },
+    {
+      "authenticated": true,
+      "user_id": "018f1f4b-7a5d-7b5f-8d31-123456789abc",
+      "email": "admin@example.test",
+      "role": "admin",
+      "csrf_token": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+    },
+    {
+      "authenticated": true,
+      "user_id": "018f1f4b-7a5d-7b5f-8d31-123456789abc",
+      "username": "admin",
+      "role": "admin",
+      "csrf_token": "noncanonical-token-shape"
+    },
+    {
+      "authenticated": true,
+      "user_id": "018f1f4b-7a5d-7b5f-8d31-123456789abc",
+      "username": "admin",
+      "role": "admin"
+    }
+  ]
+}
