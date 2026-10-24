@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use xcss_web::component::{component_props_builder, component_view};
 pub mod common;
 mod contracts;
@@ -121,6 +122,45 @@ fn badge(device: Signal<Device>) -> impl IntoView {
         .child(IntoRender::into_render(move || device.with(connection)))
 }
 
+type DeviceIndex = Memo<HashMap<String, usize>>;
+
+fn cached_devices(data: RwSignal<Option<Vec<Device>>>) -> Signal<Vec<Device>> {
+    // Derived Signal closures run even for .with(); cache the snapshot before sharing it.
+    Memo::new_owning(move |_| (data.get().unwrap_or_default(), true)).into()
+}
+
+fn device_index(devices: Signal<Vec<Device>>) -> DeviceIndex {
+    Memo::new(move |_| {
+        devices.with(|items| {
+            items
+                .iter()
+                .enumerate()
+                .map(|(index, device)| (device.id.clone(), index))
+                .collect()
+        })
+    })
+}
+
+fn find_device(devices: Signal<Vec<Device>>, index: DeviceIndex, id: &str) -> Option<Device> {
+    let position = index.with(|positions| positions.get(id).copied());
+    devices.with(|items| position.and_then(|position| items.get(position)).cloned())
+}
+
+fn cached_device(
+    devices: Signal<Vec<Device>>,
+    index: DeviceIndex,
+    initial: Device,
+) -> Signal<Device> {
+    let id = initial.id.clone();
+    Memo::new_owning(move |_| {
+        (
+            find_device(devices, index, &id).unwrap_or_else(|| initial.clone()),
+            true,
+        )
+    })
+    .into()
+}
+
 fn application() -> impl IntoView {
     let location = route();
     let revision = RwSignal::new(0);
@@ -132,7 +172,8 @@ fn application() -> impl IntoView {
     let ticket = RwSignal::new(None::<Enrollment>);
     let (data, load_error) =
         resource_typed::<Vec<Device>>(Signal::derive(|| API.to_string()), revision, 5000);
-    let devices = Signal::derive(move || data.get().unwrap_or_default());
+    let devices = cached_devices(data);
+    let index = device_index(devices);
     let selected = Signal::derive(move || {
         location
             .get()
@@ -209,7 +250,7 @@ fn application() -> impl IntoView {
                 View::new(component_view(&AccountPage, component_props_builder(&AccountPage).build())).into_any()
             } else if location.get().starts_with("details/") {
                 View::new(component_view(&Show, component_props_builder(&Show)
-                    .when(move || data.with(|items| items.as_ref().is_some_and(|items| items.iter().any(|v| v.id == selected.get()))))
+                    .when(move || index.with(|positions| positions.contains_key(&selected.get())))
                     .fallback(move || h::section().class("xscs-panel xscs-empty").child(IntoRender::into_render(move || {
                         if data.get().is_none() && load_error.get().is_none() {
                             View::new(h::p().child(t("正在读取实例…", "Loading instance…"))).into_any()
@@ -218,15 +259,14 @@ fn application() -> impl IntoView {
                             h::a().class("xcss-button").href("#instances").child(t("返回实例列表", "Back to instances")))).into_any() }
                     })))
                     .children(ToChildren::to_children(move || component_view(&For, component_props_builder(&For)
-                        .each(move || devices.get().into_iter().filter(|v| v.id == selected.get()).collect::<Vec<_>>())
+                        .each(move || find_device(devices, index, &selected.get()).into_iter().collect::<Vec<_>>())
                         .key(|v: &Device| v.id.clone())
                         .children(move |initial: Device| {
-                            let id = initial.id.clone();
-                            let device = Signal::derive(move || devices.with(|items| items.iter().find(|v| v.id == id).cloned()).unwrap_or_else(|| initial.clone()));
-                            workspace(device, data, revision, ticket)
+                            let device = cached_device(devices, index, initial);
+                            workspace(device, devices, index, data, revision, ticket)
                         }).build()))).build())).into_any()
             } else {
-                View::new(instances(devices, Signal::derive(move || data.get().is_some()), revision)).into_any()
+                View::new(instances(devices, index, Signal::derive(move || data.get().is_some()), revision)).into_any()
             }
         }),
     )))
@@ -234,6 +274,7 @@ fn application() -> impl IntoView {
 
 fn instances(
     devices: Signal<Vec<Device>>,
+    index: DeviceIndex,
     loaded: Signal<bool>,
     revision: RwSignal<u64>,
 ) -> impl IntoView {
@@ -242,13 +283,21 @@ fn instances(
     let candidate = RwSignal::new(String::new());
     let busy = RwSignal::new(false);
     let error = RwSignal::new(None);
-    let filtered = Signal::derive(move || {
-        devices
-            .get()
-            .into_iter()
-            .filter(|v| matches_filter(v, &query.get(), &role_filter.get()))
-            .collect::<Vec<_>>()
-    });
+    let filtered: Signal<Vec<Device>> = Memo::new_owning(move |_| {
+        let query = query.get();
+        let role_filter = role_filter.get();
+        (
+            devices.with(|items| {
+                items
+                    .iter()
+                    .filter(|v| matches_filter(v, &query, &role_filter))
+                    .cloned()
+                    .collect()
+            }),
+            true,
+        )
+    })
+    .into();
     View::new(h::div().class("xcss-content-stack").child((
         h::div().class("xscs-page-heading").child(h::div().child((h::h1().child(t("实例管理", "Instance management")),
             h::p().child(t("管理原生控制端与被控主机。先创建、绑定，再配置连接权限。", "Manage native controllers and controlled hosts: create, enroll, then configure access."))))),
@@ -264,18 +313,17 @@ fn instances(
                 h::label().class("xscs-field").child((h::span().child(t("筛选角色", "Filter by role")), h::select().class("xcss-input").prop("value", move || role_filter.get())
                     .on(xcss_web::ev::change, move |event| role_filter.set(event_target_value(&event)))
                     .child((h::option().value("all").child(t("全部角色", "All roles")), h::option().value("controller").child(t("控制端", "Controller")), h::option().value("controlled").child(t("被控端", "Controlled host")))))),
-                h::p().class("xscs-hint").role("status").child(IntoRender::into_render(move || format!("{} / {}", filtered.get().len(), devices.get().len()))),
+                h::p().class("xscs-hint").role("status").child(IntoRender::into_render(move || format!("{} / {}", filtered.with(Vec::len), devices.with(Vec::len)))),
             )), failure(error),
             IntoRender::into_render(move || (!loaded.get()).then(|| h::p().class("xscs-hint").child(t("正在读取实例…", "Loading instances…")))),
-            IntoRender::into_render(move || (loaded.get() && filtered.get().is_empty()).then(|| h::p().class("xscs-empty").child(
-                if devices.get().is_empty() { t("暂无实例。点击顶部“新建实例”，创建后在原生客户端绑定。", "No instances. Select Create instance above, then enroll in the native client.") }
+            IntoRender::into_render(move || (loaded.get() && filtered.with(Vec::is_empty)).then(|| h::p().class("xscs-empty").child(
+                if devices.with(Vec::is_empty) { t("暂无实例。点击顶部“新建实例”，创建后在原生客户端绑定。", "No instances. Select Create instance above, then enroll in the native client.") }
                 else { t("没有符合搜索或角色筛选的实例。", "No instances match the search and role filter.") }))),
             h::div().class("xcss-table-scroll").child(h::table().class("xcss-table").aria_label(t("RustDesk 实例", "RustDesk instances")).child((
                 h::thead().child(h::tr().child([t("名称", "Name"), t("角色", "Role"), t("管理连接", "Management connection"), t("RustDesk 状态", "RustDesk status"), t("平台", "Platform"), t("最近连接", "Last seen"), t("操作", "Actions")].into_iter().map(|label| h::th().child(label)).collect_view())),
                 h::tbody().child(component_view(&For, component_props_builder(&For).each(move || filtered.get()).key(|v: &Device| v.id.clone())
                     .children(move |initial: Device| {
-                        let id = initial.id.clone();
-                        let device = Signal::derive(move || devices.with(|items| items.iter().find(|v| v.id == id).cloned()).unwrap_or_else(|| initial.clone()));
+                        let device = cached_device(devices, index, initial);
                         instance_row(device, candidate, busy, error, revision)
                     }).build())),
             ))),
@@ -362,11 +410,12 @@ fn instance_row(
 
 fn workspace(
     device: Signal<Device>,
+    devices: Signal<Vec<Device>>,
+    index: DeviceIndex,
     data: RwSignal<Option<Vec<Device>>>,
     revision: RwSignal<u64>,
     ticket: RwSignal<Option<Enrollment>>,
 ) -> impl IntoView {
-    let devices = Signal::derive(move || data.get().unwrap_or_default());
     let id = device.with_untracked(|v| v.id.clone());
     let path = format!("{API}/{id}");
     let name = RwSignal::new(None::<String>);
@@ -675,7 +724,7 @@ fn workspace(
                 )))),
             )),
         )),
-        access_editor(device, devices, revision),
+        access_editor(device, devices, index, revision),
         h::section().class("xscs-panel").child((
             h::div().class("xscs-panel-heading").child((h::div().child((h::h2().child(t("诊断任务与结果", "Diagnostic tasks and results")), h::p().child(t("只读诊断用于核对被控端接入状态，不会启动远程连接。", "Read-only diagnostics inspect host integration without starting a remote session.")))),
                 h::button().class("xcss-button").disabled(IntoAttributeValue::into_attribute_value(move || busy.get() || !device.with(can_diagnose))).on(xcss_web::ev::click, move |_| diagnose.run(())).child(t("读取主机诊断", "Read host diagnostics")))),
@@ -764,6 +813,7 @@ fn operation_summary(op: &Operation) -> String {
 fn access_editor(
     device: Signal<Device>,
     devices: Signal<Vec<Device>>,
+    index: DeviceIndex,
     revision: RwSignal<u64>,
 ) -> impl IntoView {
     let path = format!("{API}/{}/access", device.with_untracked(|v| v.id.clone()));
@@ -876,10 +926,10 @@ fn access_editor(
             if stale.get() { t("已保留未保存的选择。授权需要重新核对；点击“重新读取授权”后将以服务端结果替换当前选择。", "Unsaved selections are preserved. Reload permissions to reconcile; reloading replaces this draft with server values.") }
             else { t("有未保存的选择，实例刷新不会覆盖。保存时核对授权版本；重新读取授权会以服务端结果替换当前选择。", "Unsaved selections survive instance refreshes. Saving checks the access revision; reloading replaces the draft with server values.") }))),
         h::fieldset().disabled(IntoAttributeValue::into_attribute_value(move || blocked.get())).child((h::legend().child(t("授权对端", "Allowed peers")),
-            component_view(&For, component_props_builder(&For).each(move || devices.get().into_iter().filter(|v| v.role != device.with(|v| v.role)).collect::<Vec<_>>()).key(|v: &Device| v.id.clone())
+            component_view(&For, component_props_builder(&For).each(move || { let role = device.with(|v| v.role); devices.with(|items| items.iter().filter(|v| v.role != role).cloned().collect::<Vec<_>>()) }).key(|v: &Device| v.id.clone())
                 .children(move |initial: Device| {
                     let id = StoredValue::new(initial.id.clone());
-                    let peer = Signal::derive(move || devices.with(|items| items.iter().find(|v| v.id == id.get_value()).cloned()).unwrap_or_else(|| initial.clone()));
+                    let peer = cached_device(devices, index, initial);
                     h::label().class("rustdesk-access-peer xscs-check").child((
                         h::input().r#type("checkbox").prop("checked", move || selected.get().contains(&id.get_value()))
                             .disabled(IntoAttributeValue::into_attribute_value(move || blocked.get() || (!selected.get().contains(&id.get_value()) && (selected.get().len() >= 32 || peer.with(|v| v.revoked)))))
@@ -925,6 +975,43 @@ mod tests {
             }),
         }
     }
+    #[test]
+    fn cached_list_reads_share_storage_and_index_follows_reordering() {
+        let owner = Owner::new();
+        owner.set();
+        let initial = device();
+        let mut second = initial.clone();
+        second.id = "device-2".into();
+        let data = RwSignal::new(Some(vec![initial.clone(), second]));
+        let devices = cached_devices(data);
+        let index = device_index(devices);
+        let row = cached_device(devices, index, initial.clone());
+        {
+            let first = devices.read();
+            let second = devices.read();
+            assert!(std::ptr::eq(first.as_ptr(), second.as_ptr()));
+            let first_row = row.read();
+            let second_row = row.read();
+            assert!(std::ptr::eq(
+                first_row.name.as_ptr(),
+                second_row.name.as_ptr()
+            ));
+        }
+        data.update(|items| {
+            let items = items.as_mut().unwrap();
+            items.swap(0, 1);
+            items[1].name = "Renamed after polling".into();
+        });
+        assert_eq!(
+            index.with(|positions| positions.get(&initial.id).copied()),
+            Some(1)
+        );
+        assert_eq!(
+            row.with(|device| device.name.clone()),
+            "Renamed after polling"
+        );
+    }
+
     #[test]
     fn instance_names() {
         assert!(valid_name("实例 1"));
