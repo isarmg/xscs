@@ -147,8 +147,8 @@ html:root .xcss-admin-shell .xcss-button {
   min-width: var(--xscs-row);
   min-height: var(--xscs-row);
   height: auto;
-  padding: max(0px, calc((var(--xscs-row) - 1lh) / 2)) var(--xscs-text-inset);
-  border: 0;
+  padding: max(0px, calc((var(--xscs-row) - 1lh) / 2 - var(--xscs-button-border, 0px))) calc(var(--xscs-text-inset) - var(--xscs-button-border, 0px));
+  border: var(--xscs-button-border, 0px) solid transparent;
   border-radius: 0;
   color: var(--xcss-text-link, #444);
   background: transparent;
@@ -179,8 +179,8 @@ html:root .xcss-admin-shell .xcss-input {
   min-height: var(--xscs-control-height);
   height: var(--xscs-control-height);
   margin: 0;
-  padding: 0 calc((var(--xscs-control-height) - 1em) / 2 - 1px);
-  border: 1px solid var(--xcss-block-border, #e3e3e3);
+  padding: 0 calc((var(--xscs-control-height) - 1em) / 2 - var(--xscs-control-border, 1px));
+  border: var(--xscs-control-border, 1px) solid var(--xcss-block-border, #e3e3e3);
   border-radius: 0;
   color: inherit;
   background: transparent;
@@ -196,7 +196,6 @@ html:root .xcss-admin-shell .xcss-input::placeholder { color: var(--xcss-block-m
 /* A top-layer menu, including its inner rectangular rows, uses zxs geometry. */
 html:root .xcss-admin-shell .xcss-select { display: block; width: 100%; min-width: 0; }
 html:root .xcss-admin-shell .xcss-select-trigger {
-  --xscs-control-height: var(--xscs-row);
   --xcss-server-corner-mode: clip;
   display: flex;
   align-items: center;
@@ -266,9 +265,9 @@ html:root .xcss-admin-shell .xcss-error { color: var(--xcss-text-danger); }
 html:root .xcss-admin-shell .xcss-request-id { margin: 0; font-size: inherit; }
 html:root .xcss-admin-shell .xcss-toast-stack { margin: 0 var(--xscs-page-inset) var(--xscs-page-inset); gap: var(--xscs-gap); }
 html:root .xcss-admin-shell .xcss-toast { margin: 0; padding: 7.2px var(--xscs-text-inset); border: 0; background: var(--xcss-bg-panel); }
-html:root .xcss-admin-shell :is(.xcss-content-stack, .xscs-panel) pre { --xcss-server-corner-extent: var(--xcss-server-corner-panel); max-width: 100%; max-height: 30rem; margin: 0; padding: 7.2px var(--xscs-frame-inset); border: 1px solid var(--xcss-block-border); white-space: pre-wrap; overflow: auto; overflow-wrap: anywhere; line-height: 1.5; }
+html:root .xcss-admin-shell :is(.xcss-content-stack, .xscs-panel) pre { --xcss-server-corner-extent: var(--xcss-server-corner-panel); max-width: 100%; max-height: 30rem; margin: 0; padding: max(0px, calc((var(--xscs-row) - 1lh - 2px) / 2)) var(--xscs-frame-inset); border: 1px solid var(--xcss-block-border); white-space: pre-wrap; overflow: auto; overflow-wrap: anywhere; line-height: 1.5; }
 .xcss-content-stack code, .xscs-panel code { user-select: all; overflow-wrap: anywhere; }
-html:root .xcss-admin-shell .xscs-sensitive { display: block; min-height: var(--xscs-row); padding: 7.2px var(--xscs-frame-inset); background: var(--xcss-bg-page); user-select: all; }
+html:root .xcss-admin-shell .xscs-sensitive { display: block; min-height: var(--xscs-row); padding: max(0px, calc((var(--xscs-row) - 1lh - 2px) / 2)) var(--xscs-frame-inset); background: var(--xcss-bg-page); user-select: all; }
 .xscs-step-list { display: grid; gap: 0; margin: 0; padding-inline: calc(var(--xscs-frame-inset) + 1.5em) var(--xscs-frame-inset); line-height: 1.5; }
 .xscs-step-list li { min-height: var(--xscs-row); padding-block: 7.2px; }
 html:root .xcss-admin-shell dl { display: grid; grid-template-columns: minmax(8rem, .7fr) minmax(0, 2fr); gap: 0; }
@@ -307,4 +306,138 @@ html:root .xcss-admin-shell .xcss-account-page :is(h1, h2, p) { min-height: var(
   html:root .xcss-admin-shell .xcss-select-option[data-active="true"] { color: HighlightText; background: Highlight; }
   html:root .xcss-admin-shell :where(button, a, input, select, textarea, [tabindex]):focus-visible { outline-color: Highlight; }
   html:root .xcss-admin-shell .xcss-button:disabled { color: GrayText; opacity: 1; }
+}
+
+
+/* Density is a role of a whole row, including cells and the action hit areas.
+ * Keep the multi-line diagnostics table independent of the instance list. */
+html:root .xcss-admin-shell .xscs-instance-table :is(th, td) {
+  height: var(--xscs-row);
+  padding-block: 0;
+  padding-inline: var(--xscs-text-inset);
+  vertical-align: middle;
+  white-space: nowrap;
+}
+html:root .xcss-admin-shell .xscs-instance-table :is(th, td):last-child {
+  width: calc(22ch + 2 * var(--xscs-text-inset));
+  min-width: calc(22ch + 2 * var(--xscs-text-inset));
+}
+html:root .xcss-admin-shell .xscs-instance-table .xcss-actions { flex-wrap: nowrap; column-gap: .5em; }
+html:root .xcss-admin-shell .xscs-instance-table .xcss-button {
+  --xscs-button-border: 2px;
+  min-height: calc(var(--xscs-row) - 2px);
+  height: calc(var(--xscs-row) - 2px);
+  padding: 0;
+  white-space: nowrap;
+}
+html:root .xcss-admin-shell .xscs-instance-table tbody th a {
+  --xcss-server-corner-extent: calc((var(--xscs-row) - 2px) / 2);
+  display: block;
+  max-width: 24rem;
+  height: calc(var(--xscs-row) - 2px);
+  padding: 0;
+  border: 2px solid transparent;
+  overflow: hidden;
+  line-height: calc(var(--xscs-row) - 6px);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* A bounded border is painted with the same G4 profile as the control. It
+ * remains visible within clipped panels without a rectangular outer outline. */
+html:root .xcss-admin-shell .xcss-input:focus-visible {
+  --xscs-control-border: 2px;
+  border-color: var(--xcss-focus);
+  outline: 0;
+}
+html:root .xcss-admin-shell .xcss-button:focus-visible {
+  --xscs-button-border: 2px;
+  border-color: var(--xcss-focus);
+  outline: 0;
+}
+html:root .xcss-admin-shell .xcss-header-actions .xcss-button { padding-inline: calc(8px - var(--xscs-button-border, 0px)); }
+html:root .xcss-admin-shell .xcss-header-navigation :is(a, button) {
+  --xcss-server-corner-extent: calc(var(--xscs-row) / 2);
+  border: 2px solid transparent;
+  padding: max(0px, calc((var(--xscs-row) - 1lh) / 2 - 2px)) calc(var(--xscs-text-inset) - 2px);
+}
+html:root .xcss-admin-shell .xcss-header-navigation :is(a, button):focus-visible,
+html:root .xcss-admin-shell .xscs-instance-table tbody th a:focus-visible { border-color: var(--xcss-focus); outline: 0; }
+html:root .xcss-admin-shell .xscs-panel details > summary {
+  --xcss-server-corner-extent: calc(var(--xscs-row) / 2);
+  border: 2px solid transparent;
+  padding: max(0px, calc((var(--xscs-row) - 1lh) / 2 - 2px)) calc(var(--xscs-frame-inset) - 2px);
+}
+html:root .xcss-admin-shell .xscs-panel details > summary:focus-visible { border-color: var(--xcss-focus); outline: 0; }
+
+/* Keep the native checkbox semantics; decorate the existing control only. */
+html:root .xcss-admin-shell input[type="checkbox"] {
+  --xcss-server-corner-extent: 9px;
+  --xcss-server-corner-mode: clip;
+  appearance: none;
+  display: inline-grid;
+  place-content: center;
+  position: relative;
+  width: 18px;
+  height: 18px;
+  min-height: 18px;
+  padding: 0;
+  border: 1px solid var(--xcss-block-border);
+  border-radius: 0;
+  background: var(--xcss-bg-page);
+  color: var(--xcss-text-primary);
+}
+html:root .xcss-admin-shell input[type="checkbox"]::before {
+  content: "";
+  display: block;
+  box-sizing: border-box;
+  width: 9px;
+  height: 5px;
+  border-left: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: rotate(-45deg) scale(0);
+  transform-origin: center;
+}
+html:root .xcss-admin-shell input[type="checkbox"]:checked::before { transform: rotate(-45deg) scale(1); }
+html:root .xcss-admin-shell input[type="checkbox"]:focus-visible { border: 2px solid var(--xcss-focus); outline: 0; }
+html:root .xcss-admin-shell :is(.xcss-empty, .xcss-loading, .xscs-empty:not(.xscs-panel)) { display: flex; align-items: center; justify-content: center; text-align: center; }
+html:root .xcss-admin-shell .xscs-panel.xscs-empty { justify-items: center; text-align: center; }
+
+/* The previous imported auth layout divided a fixed card into six equal
+ * tracks and could shrink inputs below 44px. Use ZXS's content-sized rows. */
+html:root .xcss-auth-shell { padding: 24px; }
+html:root .xcss-auth-shell .xcss-auth-content { width: min(380px, 100%); }
+html:root .xcss-auth-shell .xcss-auth-card:has(> form) {
+  display: grid;
+  align-items: center;
+  width: min(380px, 100%);
+  container-type: inline-size;
+  aspect-ratio: auto;
+  min-height: 18rem;
+  padding: 0;
+}
+html:root .xcss-auth-shell .xcss-auth-card > form {
+  position: relative;
+  inset: auto;
+  grid-template-rows: auto minmax(44px, auto) auto minmax(44px, auto) minmax(1.5em, auto) minmax(44px, auto);
+  padding: 1rem max(1.5rem, var(--xcss-server-corner-text-inset, 26px));
+  font-size: max(1rem, calc(100cqw / 18));
+  font-weight: 400;
+  line-height: 1.5;
+}
+html:root .xcss-auth-shell .xcss-auth-card > form :is(label, span, input, button) { font: inherit; }
+html:root .xcss-auth-shell .xcss-auth-card .xcss-input,
+html:root .xcss-auth-shell .xcss-auth-card > form > button { min-height: 44px; }
+html:root .xcss-auth-shell .xcss-auth-card .xcss-error { font-size: inherit; overflow: visible; }
+html:root .xcss-auth-shell .xcss-auth-card .xcss-form-field > span { font-size: inherit; }
+@media (max-width: 26rem), (max-height: 30rem) {
+  html:root .xcss-auth-shell { padding: 1rem; }
+  html:root .xcss-auth-shell .xcss-auth-card:has(> form) { min-height: 0; }
+}
+@media (forced-colors: active) {
+  html:root .xcss-admin-shell :is(.xcss-input, .xcss-button, input[type="checkbox"]):focus-visible,
+  html:root .xcss-admin-shell .xcss-header-navigation :is(a, button):focus-visible,
+  html:root .xcss-admin-shell .xscs-instance-table tbody th a:focus-visible,
+  html:root .xcss-admin-shell .xscs-panel details > summary:focus-visible { outline: 2px solid Highlight; outline-offset: 3px; }
+  html:root .xcss-admin-shell input[type="checkbox"] { appearance: auto; --xcss-server-corner-extent: 0px; --xcss-server-corner-mode: none; }
+  html:root .xcss-admin-shell input[type="checkbox"]::before { display: none; }
 }

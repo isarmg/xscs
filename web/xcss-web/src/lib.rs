@@ -233,7 +233,7 @@ fn application() -> impl IntoView {
                         .prop("value", move || new_name.get()).on(xcss_web::ev::input, move |event| new_name.set(event_target_value(&event)))
                         .disabled(IntoAttributeValue::into_attribute_value(move || busy.get())))),
                 component_view(&Select, component_props_builder(&Select)
-                    .label(t("新实例角色", "New instance role"))
+                    .label(t("新实例角色", "New instance role")).compact(false)
                     .options(Signal::derive(|| vec![SelectOption::new("controlled", t("被控端", "Controlled host")), SelectOption::new("controller", t("控制端", "Controller"))]))
                     .value(Signal::derive(move || if new_role.get() == DeviceRole::Controller { "controller".into() } else { "controlled".into() }))
                     .on_change(Callback::new(move |value: String| new_role.set(if value == "controller" { DeviceRole::Controller } else { DeviceRole::Controlled })))
@@ -310,7 +310,7 @@ fn instances(
                 })))))).collect_view()),
         h::section().class("xscs-panel").child((
             h::div().class("xscs-toolbar").child((
-                h::label().class("xscs-field").child((h::span().child(t("搜索实例", "Search instances")), h::input().class("xcss-input").r#type("search")
+                h::label().class("xscs-field").child((h::span().child(t("搜索实例", "Search instances")), h::input().class("xcss-input xcss-input--compact").r#type("search")
                     .placeholder(t("名称、实例 ID 或平台", "Name, instance ID or platform")).prop("value", move || query.get()).on(xcss_web::ev::input, move |event| query.set(event_target_value(&event))))),
                 component_view(&Select, component_props_builder(&Select)
                     .label(t("筛选角色", "Filter by role"))
@@ -322,7 +322,7 @@ fn instances(
             IntoRender::into_render(move || (loaded.get() && filtered.with(Vec::is_empty)).then(|| h::p().class("xscs-empty").child(
                 if devices.with(Vec::is_empty) { t("暂无实例。点击顶部“新建实例”，创建后在原生客户端绑定。", "No instances. Select Create instance above, then enroll in the native client.") }
                 else { t("没有符合搜索或角色筛选的实例。", "No instances match the search and role filter.") }))),
-            h::div().class("xcss-table-scroll").child(h::table().class("xcss-table").aria_label(t("RustDesk 实例", "RustDesk instances")).child((
+            h::div().class("xcss-table-scroll").child(h::table().class("xcss-table xscs-instance-table").aria_label(t("RustDesk 实例", "RustDesk instances")).child((
                 h::thead().child(h::tr().child([t("名称", "Name"), t("角色", "Role"), t("管理连接", "Management connection"), t("RustDesk 状态", "RustDesk status"), t("平台", "Platform"), t("最近连接", "Last seen"), t("操作", "Actions")].into_iter().map(|label| h::th().child(label)).collect_view())),
                 h::tbody().child(component_view(&For, component_props_builder(&For).each(move || filtered.get()).key(|v: &Device| v.id.clone())
                     .children(move |initial: Device| {

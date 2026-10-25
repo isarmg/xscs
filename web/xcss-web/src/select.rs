@@ -104,6 +104,7 @@ pub fn Select(
     options: Signal<Vec<SelectOption>>,
     value: Signal<String>,
     on_change: Callback<String>,
+    #[prop(default = true)] compact: bool,
     #[prop(default=Signal::derive(|| false))] disabled: Signal<bool>,
 ) -> impl IntoView {
     let id = format!("xscs-select-{}", SEQUENCE.fetch_add(1, Ordering::Relaxed));
@@ -255,7 +256,11 @@ pub fn Select(
                 .r#for(control_id.get_value())
                 .child(label),
             h::button()
-                .class("xcss-input xcss-select-trigger xcss-input--compact")
+                .class(if compact {
+                    "xcss-input xcss-select-trigger xcss-input--compact"
+                } else {
+                    "xcss-input xcss-select-trigger"
+                })
                 .r#type("button")
                 .node_ref(trigger)
                 .id(control_id.get_value())

@@ -7,6 +7,7 @@ import {randomUUID} from 'node:crypto';
 
 const session = {authenticated: true, user_id: 'A'.repeat(43), username: 'admin', role: 'admin', csrf_token: 'A'.repeat(43)};
 const evidenceDirectory = process.env.XCSS_BROWSER_EVIDENCE_DIR;
+const evidencePrefix = process.env.XCSS_BROWSER_EVIDENCE_PREFIX || "";
 if (evidenceDirectory) await mkdir(evidenceDirectory, {recursive: true});
 const server = await preview({preview: {host: '127.0.0.1', port: 0, strictPort: true}});
 try {
@@ -132,7 +133,7 @@ try {
       };
       const screenshot = async (name, fullPage = true) => {
         if (evidenceDirectory) {
-          await page.screenshot({path: resolve(evidenceDirectory, `${engine.name()}-fixture-${name}.png`), fullPage});
+          await page.screenshot({path: resolve(evidenceDirectory, `${engine.name()}-fixture-${evidencePrefix}${name}.png`), fullPage});
         }
       };
 
@@ -151,6 +152,62 @@ try {
         await expect(control).toHaveAttribute('aria-expanded', 'false');
         await expect(control).toBeFocused();
         await expect(control).toContainText(label);
+      };
+      const rowGeometry = async name => page.locator('tbody tr').filter({has: page.getByRole('link', {name, exact: true})}).evaluate(row => {
+        const rect = node => { const box = node.getBoundingClientRect(); return {x:box.x,y:box.y,width:box.width,height:box.height}; };
+        const table = rect(row.closest('table')), box = rect(row);
+        const textCenter = element => {
+          const parts=[];
+          const walker=document.createTreeWalker(element,NodeFilter.SHOW_TEXT);
+          while(walker.nextNode()) {
+            const node=walker.currentNode;
+            if(!node.textContent.trim() || node.parentElement.closest('svg,[data-xcss-server-corner-decoration]')) continue;
+            const range=document.createRange(); range.selectNodeContents(node);
+            for(const part of range.getClientRects()) if(part.width && part.height) parts.push(part);
+          }
+          if(!parts.length) return null;
+          return (Math.min(...parts.map(part=>part.y))+Math.max(...parts.map(part=>part.bottom)))/2;
+        };
+        const cells=[...row.children].filter(node=>node.matches('th,td'));
+        return {height:box.height,y:box.y-table.y,tableWidth:table.width,
+          columns:cells.map(cell=>{const b=rect(cell);return {x:b.x-box.x,width:b.width};}),
+          textOffsets:cells.map(cell=>{const center=textCenter(cell);return center===null?null:center-(box.y+box.height/2);}),
+          buttons:[...row.querySelectorAll('button')].filter(node=>{const b=rect(node);return b.width>0 && b.height>0 && getComputedStyle(node).visibility!=='hidden';})
+            .map(button=>{const b=rect(button),center=textCenter(button);return {height:b.height,offset:b.y+b.height/2-(box.y+box.height/2),textOffset:center===null?null:center-(box.y+box.height/2)};})};
+      });
+      const assertCenteredRow = geometry => {
+        assert.ok(Math.abs(geometry.height-36)<0.25, `instance row is ${geometry.height}px`);
+        for(const offset of geometry.textOffsets) if(offset!==null) assert.ok(Math.abs(offset)<1.6, `cell text vertical offset ${offset}`);
+        for(const button of geometry.buttons) {
+          assert.ok(Math.abs(button.height-34)<0.25, `table button is ${button.height}px`);
+          assert.ok(Math.abs(button.offset)<0.6, `button box vertical offset ${button.offset}`);
+          if(button.textOffset!==null) assert.ok(Math.abs(button.textOffset)<1.6, `button text vertical offset ${button.textOffset}`);
+        }
+      };
+      const assertStableInlineDelete = async (name, remove, cancel) => {
+        const row=page.locator('tbody tr').filter({has:page.getByRole('link',{name,exact:true})});
+        const before=await rowGeometry(name); assertCenteredRow(before);
+        await row.getByRole('button',{name:remove,exact:true}).click();
+        const confirming=await rowGeometry(name); assertCenteredRow(confirming);
+        assert.ok(Math.abs(confirming.y-before.y)<0.5, 'confirmation must not move the row');
+        for(let index=0;index<before.columns.length;index++) {
+          assert.ok(Math.abs(confirming.columns[index].x-before.columns[index].x)<0.5, 'confirmation must not move table columns');
+          assert.ok(Math.abs(confirming.columns[index].width-before.columns[index].width)<0.5, 'confirmation must not resize operation/table columns');
+        }
+        await row.getByRole('button',{name:cancel,exact:true}).click();
+        const after=await rowGeometry(name); assertCenteredRow(after);
+        assert.ok(Math.abs(after.y-before.y)<0.5);
+        for(let index=0;index<before.columns.length;index++) assert.ok(Math.abs(after.columns[index].width-before.columns[index].width)<0.5);
+      };
+      const assertSingleCodeRow = async () => {
+        const geometry=await page.locator('.xscs-sensitive').evaluate(element=>{
+          const box=element.getBoundingClientRect(), parts=[];
+          const walker=document.createTreeWalker(element,NodeFilter.SHOW_TEXT);
+          while(walker.nextNode()) {const node=walker.currentNode;if(!node.textContent.trim()||node.parentElement.closest('svg,[data-xcss-server-corner-decoration]'))continue;const range=document.createRange();range.selectNodeContents(node);parts.push(...range.getClientRects());}
+          return {height:box.height,lines:parts.length,offset:parts.length?(Math.min(...parts.map(p=>p.y))+Math.max(...parts.map(p=>p.bottom)))/2-(box.y+box.height/2):null};
+        });
+        assert.ok(Math.abs(geometry.height-36)<0.25, `sensitive row is ${geometry.height}px`);
+        assert.equal(geometry.lines,1); assert.ok(Math.abs(geometry.offset)<1.6);
       };
       const assertMenuFitsViewport = async panel => {
         const box = await panel.boundingBox();
@@ -172,6 +229,7 @@ try {
       await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
       await expect(page.getByRole('heading', {name: '实例管理', exact: true})).toBeVisible();
       await expect(page.getByRole('link', {name: device.name, exact: true})).toBeVisible();
+      await assertStableInlineDelete(device.name,'删除','取消');
       await screenshot('instances-desktop');
       await page.setViewportSize({width: 390, height: 844});
       await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
@@ -181,7 +239,7 @@ try {
       // Shared zxs geometry and custom listbox, including usable square fallback.
       let menu = await openSelect('筛选角色');
       await expect(menu.control).toHaveCSS('height', '36px');
-      await expect(page.getByRole('searchbox', {name: '搜索实例', exact: true})).toHaveCSS('height', '44px');
+      await expect(page.getByRole('searchbox', {name: '搜索实例', exact: true})).toHaveCSS('height', '36px');
       await expect(menu.panel.getByRole('option').first()).toHaveCSS('height', '36px');
       await expect(menu.control).toHaveAttribute('data-xcss-server-corner-profile', 'zxs-g4');
       await expect(menu.panel).toHaveAttribute('data-xcss-server-corner-profile', 'zxs-g4');
@@ -256,6 +314,13 @@ try {
       await expect(saveAccess()).toBeDisabled();
       await releaseAccess();
       await expect(peerCheckbox()).toBeEnabled();
+      await peerCheckbox().focus(); await peerCheckbox().press('Space'); await expect(peerCheckbox()).toBeChecked();
+      await peerCheckbox().press('Space'); await expect(peerCheckbox()).not.toBeChecked();
+      await page.emulateMedia({forcedColors:'active'});
+      await peerCheckbox().focus(); await peerCheckbox().press('Space'); await expect(peerCheckbox()).toBeChecked();
+      await expect(peerCheckbox()).toBeEnabled();
+      await peerCheckbox().press('Space'); await expect(peerCheckbox()).not.toBeChecked();
+      await page.emulateMedia({forcedColors:'none'});
       await expect(page.getByText('被控端 · 等待原生客户端就绪', {exact: true})).toBeVisible();
       await expect(page.getByText('host.example.com:21118', {exact: true})).toBeVisible();
       await peerCheckbox().check();
@@ -297,6 +362,7 @@ try {
       await page.getByRole('button', {name: '确认重置实例密码', exact: true}).click();
       await resetResponse;
       await expect(page.getByText(authorizations.get(device.id), {exact: true})).toBeVisible();
+      await assertSingleCodeRow();
       await expect(page.getByText('c'.repeat(36), {exact: true})).toHaveCount(0);
       await expect(page.getByText('等待绑定', {exact: true}).first()).toBeVisible();
       await expect(page.getByRole('button', {name: '读取主机诊断', exact: true})).toBeDisabled();
@@ -377,6 +443,9 @@ try {
       await expect(create).toBeDisabled();
       await page.getByLabel('实例名称', {exact: true}).fill('新增控制端');
       const newRole = select('新实例角色');
+      const roleBox=await newRole.boundingBox(), nameBox=await page.getByLabel('实例名称',{exact:true}).boundingBox();
+      assert.ok(Math.abs(roleBox.height-44)<0.25 && Math.abs(nameBox.height-44)<0.25);
+      assert.ok(Math.abs(roleBox.y-nameBox.y)<0.5 && Math.abs(roleBox.y+roleBox.height-nameBox.y-nameBox.height)<0.5, 'create role and name share top/bottom edges');
       await newRole.focus();
       await newRole.press('Enter');
       await newRole.press('End');
@@ -414,6 +483,8 @@ try {
       translated.hash = 'instances';
       await page.goto(translated.href);
       await expect(page.getByRole('heading', {name: 'Instance management', exact: true})).toBeVisible();
+      await chooseOption('Filter by role', 'All roles');
+      await assertStableInlineDelete(device.name,'Delete','Cancel');
       await chooseOption('Filter by role', 'Controller');
       await expect(page.getByRole('link', {name: controller.name, exact: true})).toBeVisible();
       await expect(page.getByRole('link', {name: device.name, exact: true})).toHaveCount(0);
