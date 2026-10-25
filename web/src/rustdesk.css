@@ -1,118 +1,145 @@
-/* XSCS application geometry follows zxs/src/web/public/styles (local reference).
- * Shared xcss assets retain their licenses; business layout stays application-owned. */
+/* Application-owned geometry follows zxs/src/web/public/styles at f009be2ab.
+ * Extents describe G4 corner bounds, not CSS circular radii. The local Rust
+ * controller paints them; border-radius: 0 is the usable square fallback. */
 :root {
   --xscs-row: 36px;
   --xscs-input-row: 44px;
-  --xscs-gap: 18px;
-  --xscs-font-size: 14.4px;
+  --xscs-font-ratio: .4;
+  --xscs-font-size: calc(var(--xscs-row) * var(--xscs-font-ratio));
+  --xscs-gap: calc(var(--xscs-row) / 2);
+  --xscs-text-inset: calc((var(--xscs-row) - var(--xscs-font-size)) / 2);
+  --xscs-frame-inset: calc(var(--xscs-text-inset) - 1px);
+  --xscs-page-inset: 16px;
   --xcss-font-size-body: var(--xscs-font-size);
-  --xcss-content-spacing: var(--xscs-gap);
+  --xcss-content-spacing: var(--xscs-page-inset);
   --xcss-line-height-body: 1.5;
 }
-
 html { min-width: 320px; font-size: 14px; background: var(--xcss-bg-page, #fff); }
 body { margin: 0; }
 #root { min-height: 100dvh; }
-html:root .xcss-admin-shell, .xcss-auth-shell { font-size: var(--xscs-font-size); letter-spacing: normal; }
-html:root .xcss-admin-shell, html:root .xcss-admin-shell *, html:root .xcss-admin-shell *::before, html:root .xcss-admin-shell *::after { box-sizing: border-box; }
+html:root .xcss-auth-shell { font-size: 1rem; }
 html:root .xcss-admin-shell {
-  --xcss-server-corner-control: 18px;
-  --xcss-server-corner-panel: 18px;
-  --xcss-server-corner-notification: 18px;
-  --xcss-server-corner-dialog: 18px;
+  --xcss-server-corner-control: calc(var(--xscs-row) / 2);
+  --xcss-server-corner-panel: var(--xcss-server-corner-control);
+  --xcss-server-corner-notification: var(--xcss-server-corner-control);
+  --xcss-server-corner-dialog: var(--xcss-server-corner-control);
   color: var(--xcss-text-primary, #1f1f1f);
   background: var(--xcss-bg-page, #fff);
+  font-size: var(--xscs-font-size);
+  letter-spacing: normal;
   line-height: 1.5;
 }
+html:root .xcss-admin-shell, html:root .xcss-admin-shell *, html:root .xcss-admin-shell *::before, html:root .xcss-admin-shell *::after { box-sizing: border-box; }
 html:root .xcss-admin-shell :where(h1, h2, h3, h4, p, dl, dd, figure, fieldset) { margin: 0; }
 html:root .xcss-admin-shell :where(h1, h2, h3, h4, strong, th) { font: inherit; }
 html:root .xcss-admin-shell :where(button, input, select, textarea) { font: inherit; letter-spacing: normal; touch-action: manipulation; }
 html:root .xcss-admin-shell :where(a) { color: var(--xcss-text-link); text-underline-offset: .25em; }
-html:root .xcss-admin-shell :where(button, a, input, select, textarea, [tabindex]):focus-visible {
-  outline: 2px solid var(--xcss-focus, #444);
-  outline-offset: 3px;
-}
+html:root .xcss-admin-shell :where(button, a, input, select, textarea, [tabindex]):focus-visible { outline: 2px solid var(--xcss-focus, #444); outline-offset: 3px; }
 html:root .xcss-admin-shell :where([hidden]) { display: none !important; }
 html:root .xcss-admin-shell small { font-size: inherit; }
 
-/* Brand, primary navigation and utility actions share one compact header. */
+/* Rows supply their own clearance. Gaps separate adjacent visible frames. */
 html:root .xcss-admin-shell > .xcss-page-header {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 0 var(--xscs-gap);
-  padding: 8px max(var(--xscs-gap), env(safe-area-inset-right, 0px)) 8px max(var(--xscs-gap), env(safe-area-inset-left, 0px));
+  gap: 0;
+  padding: env(safe-area-inset-top, 0px) max(var(--xscs-page-inset), env(safe-area-inset-right, 0px)) 0 max(var(--xscs-page-inset), env(safe-area-inset-left, 0px));
   border: 0;
   background: transparent;
 }
 html:root .xcss-admin-shell .xcss-header-navigation-slot { flex: 1 1 24rem; min-width: 0; }
-html:root .xcss-admin-shell .xcss-header-brand-navigation { display: flex; flex-wrap: wrap; align-items: center; gap: 0 var(--xscs-gap); min-width: 0; }
-html:root .xcss-admin-shell .xcss-product-identity { display: flex; align-items: center; min-height: var(--xscs-row); margin: 0; white-space: nowrap; }
-html:root .xcss-admin-shell .xcss-product-identity strong { font-weight: 700; }
+html:root .xcss-admin-shell .xcss-header-brand-navigation { display: flex; flex-wrap: wrap; align-items: center; gap: 0; min-width: 0; }
+html:root .xcss-admin-shell .xcss-product-identity { display: flex; align-items: center; height: auto; min-height: var(--xscs-row); padding-inline: var(--xscs-text-inset); margin: 0; white-space: nowrap; }
+html:root .xcss-admin-shell .xcss-product-identity strong { font-weight: 400; }
 html:root .xcss-admin-shell .xcss-header-navigation { display: flex; flex-wrap: wrap; flex: 1 1 18rem; align-items: center; gap: 0; padding: 0; min-width: 0; }
 html:root .xcss-admin-shell .xcss-header-navigation :is(a, button) {
+  --xcss-server-corner-extent: 0px;
   display: inline-flex;
   align-items: center;
   min-height: var(--xscs-row);
   max-width: 100%;
-  padding: 7px 11px;
+  padding: max(0px, calc((var(--xscs-row) - 1lh) / 2)) var(--xscs-text-inset);
   border: 0;
   color: inherit;
   background: transparent;
+  line-height: 1.5;
   text-decoration: none;
   white-space: normal;
 }
 html:root .xcss-admin-shell .xcss-header-navigation :is(a, button)[aria-current="page"] { text-decoration: underline; text-underline-offset: .25em; }
 html:root .xcss-admin-shell .xcss-header-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 0; margin-inline-start: auto; min-width: 0; }
-html:root .xcss-admin-shell .xcss-header-actions .xcss-button { min-width: var(--xscs-row); min-height: var(--xscs-row); height: var(--xscs-row); padding: 0 9px; }
-html:root .xcss-admin-shell .xcss-header-actions svg { width: 16px; height: 16px; }
+html:root .xcss-admin-shell .xcss-header-actions .xcss-button {
+  --xcss-server-corner-extent: calc(var(--xscs-input-row) / 2);
+  justify-content: center;
+  flex-shrink: 0;
+  min-width: var(--xscs-input-row);
+  min-height: var(--xscs-input-row);
+  height: var(--xscs-input-row);
+  padding: 0 8px;
+  font-size: calc(var(--xscs-input-row) * var(--xscs-font-ratio));
+  line-height: 1;
+  white-space: nowrap;
+}
+html:root .xcss-admin-shell .xcss-header-actions svg { width: 1em; height: 1em; }
 html:root .xcss-admin-shell .xcss-shell-layout, html:root .xcss-admin-shell .xcss-shell-layout--full { display: grid; grid-template-columns: minmax(0, 1fr); }
 html:root .xcss-admin-shell .xcss-shell-main {
   display: grid;
   align-content: start;
-  gap: var(--xscs-gap);
   min-width: 0;
-  padding: 0 max(var(--xscs-gap), env(safe-area-inset-right, 0px)) max(var(--xscs-gap), env(safe-area-inset-bottom, 0px)) max(var(--xscs-gap), env(safe-area-inset-left, 0px));
+  padding: 0 max(var(--xscs-page-inset), env(safe-area-inset-right, 0px)) max(var(--xscs-page-inset), env(safe-area-inset-bottom, 0px)) max(var(--xscs-page-inset), env(safe-area-inset-left, 0px));
 }
-html:root .xcss-admin-shell :is(.xcss-content-stack, .xscs-workspace) { display: grid; align-content: start; gap: var(--xscs-gap); min-width: 0; }
+html:root .xcss-admin-shell :is(.xcss-content-stack, .xscs-workspace) { display: grid; grid-template-columns: minmax(0, 1fr); align-content: start; gap: 0; min-width: 0; }
 html:root .xcss-admin-shell :is(.xcss-content-stack, .xscs-workspace) > * { min-width: 0; margin-block: 0; }
+html:root .xcss-admin-shell :is(.xcss-content-stack, .xscs-workspace) > :is(.xscs-panel, .xscs-metrics, .xscs-split, .xcss-content-panel, .xcss-table-scroll, .xcss-error, .xcss-empty) + :is(.xscs-panel, .xscs-metrics, .xscs-split, .xcss-content-panel, .xcss-table-scroll, .xcss-error, .xcss-empty) { margin-block-start: var(--xscs-gap); }
 
-/* The same surface, row and field rhythm is used on every management page. */
-html:root .xcss-admin-shell .xscs-page-heading { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 0 var(--xscs-gap); min-width: 0; padding-block: 5px; }
-.xscs-page-heading > div { display: grid; gap: 4px; min-width: 0; }
-html:root .xcss-admin-shell .xscs-page-heading h1 { min-height: var(--xscs-row); display: flex; align-items: center; }
-.xscs-page-heading :is(p, small), .xscs-hint, .xscs-muted { color: var(--xcss-block-muted, #5f5f5f); }
-.xscs-hint { overflow-wrap: anywhere; line-height: 1.65; }
-html:root .xcss-admin-shell :is(.xscs-panel, .xcss-content-panel) {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  align-content: start;
-  gap: var(--xscs-gap);
+html:root .xcss-admin-shell .xscs-page-heading { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 0; min-width: 0; padding: 0; }
+.xscs-page-heading > div { display: grid; gap: 0; min-width: 0; }
+html:root .xcss-admin-shell :is(.xscs-page-heading, .xscs-panel-heading) :is(h1, h2, h3, p),
+html:root .xcss-admin-shell .xscs-panel > :is(h2, h3, p) {
+  min-height: var(--xscs-row);
+  padding: max(0px, calc((var(--xscs-row) - 1lh) / 2)) var(--xscs-text-inset);
+  line-height: 1.5;
+}
+.xscs-page-heading :is(p, small), .xscs-hint, .xscs-muted, .xscs-panel-heading p { color: var(--xcss-block-muted, #5f5f5f); }
+.xscs-hint { overflow-wrap: anywhere; line-height: 1.5; }
+html:root .xcss-admin-shell :is(.xscs-panel, .xscs-metric, .xcss-content-panel, .xscs-sensitive) {
+  --xcss-server-corner-extent: var(--xcss-server-corner-panel);
+  --xcss-server-corner-mode: clip;
+  --xcss-server-corner-foreground: 1;
   min-width: 0;
-  padding: var(--xscs-gap);
+  margin: 0;
   border: 1px solid var(--xcss-block-border, #e3e3e3);
   border-radius: 0;
   background: var(--xcss-bg-panel, #f2f2f2);
   overflow-wrap: anywhere;
 }
+html:root .xcss-admin-shell :is(.xscs-panel, .xcss-content-panel) { display: grid; grid-template-columns: minmax(0, 1fr); align-content: start; gap: 0; padding: 0; }
 html:root .xcss-admin-shell :is(.xscs-panel, .xcss-content-panel) > * { min-width: 0; margin-block: 0; }
-.xscs-panel-heading { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 6px var(--xscs-gap); min-width: 0; }
-.xscs-panel-heading > div { display: grid; gap: 5px; min-width: 0; }
-.xscs-panel-heading :is(h2, h3) { min-height: var(--xscs-row); display: flex; align-items: center; }
-.xscs-panel-heading p { color: var(--xcss-block-muted, #5f5f5f); line-height: 1.65; }
-html:root .xcss-admin-shell .xscs-panel .xscs-panel { padding: var(--xscs-gap) 0 0; border-width: 1px 0 0; background: transparent; }
+html:root .xcss-admin-shell .xscs-panel > :is(h2, h3, p),
+html:root .xcss-admin-shell .xscs-panel .xscs-panel-heading :is(h2, h3, p) { padding-inline: var(--xscs-frame-inset); }
+html:root .xcss-admin-shell .xscs-panel > .xscs-field { padding-inline: var(--xscs-frame-inset); }
+html:root .xcss-admin-shell .xscs-panel .xcss-content-stack > :is(h2, h3, p),
+html:root .xcss-admin-shell .xscs-panel :is(ul > li, details > summary) { min-height: var(--xscs-row); padding: max(0px, calc((var(--xscs-row) - 1lh) / 2)) var(--xscs-frame-inset); }
+html:root .xcss-admin-shell .xscs-panel ul { margin: 0; padding: 0; list-style: none; }
+html:root .xcss-admin-shell .xscs-panel details > summary { cursor: pointer; }
+.xscs-panel-heading { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 0; min-width: 0; }
+.xscs-panel-heading > div { display: grid; gap: 0; min-width: 0; }
+html:root .xcss-admin-shell .xscs-panel .xscs-panel { --xcss-server-corner-extent: 0px; padding: 0; border-width: 1px 0 0; background: transparent; }
 .xscs-split { display: grid; grid-template-columns: minmax(0, 2fr) minmax(18rem, 1fr); gap: var(--xscs-gap); align-items: start; min-width: 0; }
 .xscs-split > * { min-width: 0; }
 .xscs-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--xscs-gap); min-width: 0; }
-.xscs-metric { display: grid; align-content: start; gap: 8px; min-width: 0; padding: var(--xscs-gap); border: 1px solid var(--xcss-block-border, #e3e3e3); background: var(--xcss-bg-panel, #f2f2f2); }
+html:root .xcss-admin-shell .xscs-metric { display: grid; align-content: start; gap: 0; padding: 0; }
 .xscs-metric :is(span, p, small) { color: var(--xcss-block-muted, #5f5f5f); }
-html:root .xcss-admin-shell .xscs-metric strong { display: block; min-height: var(--xscs-row); color: var(--xcss-text-primary); font-size: 1.25rem; font-weight: 400; font-variant-numeric: tabular-nums; }
+.xscs-metric > * { min-height: var(--xscs-row); padding: max(0px, calc((var(--xscs-row) - 1lh) / 2)) var(--xscs-frame-inset); }
+html:root .xcss-admin-shell .xscs-metric strong { color: var(--xcss-text-primary); font: inherit; font-variant-numeric: tabular-nums; }
 
-html:root .xcss-admin-shell :is(.xscs-toolbar, .xcss-actions) { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-start; gap: 8px var(--xscs-gap); min-width: 0; margin: 0; }
-.xscs-toolbar { min-height: var(--xscs-input-row); }
+html:root .xcss-admin-shell :is(.xscs-toolbar, .xcss-actions) { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-start; gap: 0; min-width: 0; margin: 0; }
+html:root .xcss-admin-shell .xscs-toolbar { min-height: var(--xscs-input-row); column-gap: var(--xscs-gap); align-items: flex-end; padding: 0 var(--xscs-frame-inset) var(--xscs-gap); }
 .xscs-toolbar > :is(label, .xscs-field) { flex: 0 1 20rem; min-width: min(100%, 12rem); }
-.xscs-toolbar > .xscs-hint { flex: 1 1 20rem; }
+.xscs-toolbar > .xscs-hint { flex: 1 1 10rem; min-height: var(--xscs-row); padding-block: max(0px, calc((var(--xscs-row) - 1lh) / 2)); }
 html:root .xcss-admin-shell .xcss-button {
+  --xcss-server-corner-extent: calc(var(--xscs-row) / 2);
   display: inline-flex;
   align-items: center;
   justify-content: flex-start;
@@ -120,7 +147,7 @@ html:root .xcss-admin-shell .xcss-button {
   min-width: var(--xscs-row);
   min-height: var(--xscs-row);
   height: auto;
-  padding: 7px 11px;
+  padding: max(0px, calc((var(--xscs-row) - 1lh) / 2)) var(--xscs-text-inset);
   border: 0;
   border-radius: 0;
   color: var(--xcss-text-link, #444);
@@ -134,98 +161,151 @@ html:root .xcss-admin-shell .xcss-button {
 html:root .xcss-admin-shell .xcss-button:not(:disabled):hover { text-decoration: underline; text-underline-offset: .25em; }
 html:root .xcss-admin-shell .xcss-button:disabled { opacity: .5; cursor: not-allowed; text-decoration: none; }
 html:root .xcss-admin-shell :is(.xscs-danger, .xcss-danger, .xcss-button--danger) { color: var(--xcss-text-danger, #a73d46); }
-html:root .xcss-admin-shell :is(.xscs-primary, .xcss-button--primary) { color: var(--xcss-text-primary); box-shadow: inset 0 -1px 0 currentColor; }
+html:root .xcss-admin-shell :is(.xscs-primary, .xcss-button--primary) { color: var(--xcss-text-primary); }
 html:root .xcss-admin-shell .xcss-button[aria-pressed="true"] { text-decoration: underline; text-underline-offset: .25em; }
 
-html:root .xcss-admin-shell .xscs-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: end; gap: var(--xscs-gap); min-width: 0; }
+html:root .xcss-admin-shell .xscs-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; gap: 0 var(--xscs-gap); min-width: 0; padding-inline: var(--xscs-frame-inset); }
 .xscs-form-grid > .xcss-actions, .xscs-form-grid > .xscs-hint, .xscs-field--wide { grid-column: 1 / -1; }
-html:root .xcss-admin-shell :is(.xscs-field, label:has(> .xcss-input), .xcss-form-field) { display: grid; gap: 6px; align-content: start; min-width: 0; margin: 0; }
-html:root .xcss-admin-shell :is(.xscs-field, .xcss-form-field) > :is(span, small) { color: var(--xcss-block-muted, #5f5f5f); }
+html:root .xcss-admin-shell .xscs-form-grid > .xcss-actions { margin-inline: calc(-1 * var(--xscs-frame-inset)); }
+.xscs-form-grid > .xscs-hint { min-height: var(--xscs-row); padding-block: max(0px, calc((var(--xscs-row) - 1lh) / 2)); }
+html:root .xcss-admin-shell :is(.xscs-field, label:has(> .xcss-input), .xcss-form-field) { display: grid; gap: 0; align-content: start; min-width: 0; margin: 0; }
+html:root .xcss-admin-shell :is(.xscs-field, .xcss-form-field) > :is(span, small, .xcss-select-label) { display: flex; align-items: center; min-height: var(--xscs-row); padding-block: max(0px, calc((var(--xscs-row) - 1lh) / 2)); color: var(--xcss-block-muted, #5f5f5f); }
 html:root .xcss-admin-shell .xcss-input {
+  --xscs-control-height: var(--xscs-input-row);
+  --xcss-server-corner-extent: calc(var(--xscs-control-height) / 2);
   display: block;
   width: 100%;
   min-width: 0;
-  min-height: var(--xscs-input-row);
-  height: var(--xscs-input-row);
+  min-height: var(--xscs-control-height);
+  height: var(--xscs-control-height);
   margin: 0;
-  padding: 0 12px;
+  padding: 0 calc((var(--xscs-control-height) - 1em) / 2 - 1px);
   border: 1px solid var(--xcss-block-border, #e3e3e3);
   border-radius: 0;
   color: inherit;
   background: transparent;
-  font-size: 1.25rem;
+  font-size: calc(var(--xscs-control-height) * var(--xscs-font-ratio));
   line-height: 1.5;
 }
-html:root .xcss-admin-shell textarea.xcss-input { height: auto; min-height: 7rem; padding-block: 10px; resize: vertical; }
-html:root .xcss-admin-shell select.xcss-input { padding-inline-end: 30px; cursor: pointer; }
+html:root .xcss-admin-shell .xcss-input--compact { --xscs-control-height: var(--xscs-row); }
+html:root .xcss-admin-shell textarea.xcss-input { --xcss-server-corner-extent: var(--xcss-server-corner-panel); height: auto; min-height: 7rem; padding-block: max(0px, calc((var(--xscs-control-height) - 1lh) / 2 - 1px)); resize: vertical; }
 html:root .xcss-admin-shell .xcss-input:focus { border-color: var(--xcss-focus, #444); }
 html:root .xcss-admin-shell .xcss-input:disabled { opacity: .6; cursor: not-allowed; }
 html:root .xcss-admin-shell .xcss-input::placeholder { color: var(--xcss-block-muted, #5f5f5f); opacity: .8; }
+
+/* A top-layer menu, including its inner rectangular rows, uses zxs geometry. */
+html:root .xcss-admin-shell .xcss-select { display: block; width: 100%; min-width: 0; }
+html:root .xcss-admin-shell .xcss-select-trigger {
+  --xscs-control-height: var(--xscs-row);
+  --xcss-server-corner-mode: clip;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .75rem;
+  text-align: start;
+  cursor: pointer;
+  background: var(--xcss-bg-panel);
+  text-decoration: none;
+}
+html:root .xcss-admin-shell .xcss-select-trigger:disabled { cursor: not-allowed; }
+html:root .xcss-admin-shell .xcss-select-trigger:focus-visible { outline: 2px solid var(--xcss-focus, Highlight); outline-offset: 3px; }
+.xcss-select-trigger .xcss-select-arrow { width: 1em; height: 1em; }
+html:root .xcss-admin-shell .xcss-select-panel {
+  --xcss-server-corner-extent: var(--xcss-server-corner-panel);
+  --xcss-server-corner-mode: clip;
+  --xcss-server-corner-foreground: 1;
+  padding: 0;
+  border: 1px solid var(--xcss-block-border);
+  background: var(--xcss-bg-panel);
+  color: var(--xcss-text-primary);
+  font-size: var(--xscs-font-size);
+  box-shadow: none;
+}
+html:root .xcss-admin-shell .xcss-select-panel:popover-open { visibility: visible; }
+html:root .xcss-admin-shell .xcss-select-panel:popover-open:not([data-xcss-server-corner-state="clip"]):not([data-xcss-server-corner-state="fallback"]) { visibility: hidden; }
+html:root .xcss-admin-shell .xcss-select-panel:popover-open[data-xcss-server-corner-state="fallback"][data-xcss-server-corner-reason="not-visible"] { visibility: hidden; }
+html:root .xcss-admin-shell .xcss-select-option {
+  --xcss-server-corner-extent: 0px;
+  display: block;
+  height: var(--xscs-row);
+  min-height: var(--xscs-row);
+  padding: 0 var(--xscs-frame-inset);
+  overflow: hidden;
+  font-size: var(--xscs-font-size);
+  line-height: var(--xscs-row);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 html:root .xcss-admin-shell :is(fieldset, .xscs-permissions) { min-width: 0; padding: 0; border: 0; }
-html:root .xcss-admin-shell legend { padding: 0; margin-block-end: 8px; color: var(--xcss-block-muted, #5f5f5f); }
-html:root .xcss-admin-shell :is(.xscs-check, .rustdesk-access-peer) { display: flex; align-items: center; gap: 10px; min-height: var(--xscs-input-row); padding: 8px 11px; margin: 0; border-bottom: 1px solid var(--xcss-block-border, #e3e3e3); cursor: pointer; overflow-wrap: anywhere; }
+html:root .xcss-admin-shell legend { min-height: var(--xscs-row); padding: 7.2px var(--xscs-frame-inset); color: var(--xcss-block-muted, #5f5f5f); }
+html:root .xcss-admin-shell :is(.xscs-check, .rustdesk-access-peer) { display: flex; align-items: center; gap: var(--xscs-text-inset); min-height: var(--xscs-row); padding: max(0px, calc((var(--xscs-row) - 1lh - 1px) / 2)) var(--xscs-frame-inset); margin: 0; border-bottom: 1px solid var(--xcss-block-border); cursor: pointer; overflow-wrap: anywhere; }
 html:root .xcss-admin-shell :is(.xscs-check, .rustdesk-access-peer):has(input:checked) { color: var(--xcss-text-primary); background: color-mix(in srgb, currentColor 4%, transparent); }
 html:root .xcss-admin-shell :is(.xscs-check, .rustdesk-access-peer):has(input:disabled) { cursor: not-allowed; opacity: .6; }
-html:root .xcss-admin-shell input:is([type="checkbox"], [type="radio"]) { flex: 0 0 18px; width: 18px; height: 18px; min-height: 0; margin: 0; accent-color: var(--xcss-text-link, #444); cursor: inherit; }
-
-html:root .xcss-admin-shell :is(.xcss-table-scroll, .xscs-table-wrap) { max-width: 100%; min-width: 0; margin: 0; padding: 0; border: 1px solid var(--xcss-block-border, #e3e3e3); background: var(--xcss-bg-panel, #f2f2f2); overflow: auto; overscroll-behavior-inline: contain; }
-html:root .xcss-admin-shell .xscs-panel > :is(.xcss-table-scroll, .xscs-table-wrap) { border: 0; background: transparent; }
+html:root .xcss-admin-shell input:is([type="checkbox"], [type="radio"]) { flex: 0 0 18px; width: 18px; height: 18px; min-height: 0; margin: 0; accent-color: var(--xcss-text-link); cursor: inherit; }
+html:root .xcss-admin-shell :is(.xcss-table-scroll, .xscs-table-wrap) { max-width: 100%; min-width: 0; margin: 0; padding: 0; border: 1px solid var(--xcss-block-border); background: var(--xcss-bg-panel); overflow: auto; overscroll-behavior-inline: contain; }
+html:root .xcss-admin-shell .xscs-panel > :is(.xcss-table-scroll, .xscs-table-wrap) { --xcss-server-corner-extent: 0px; border: 0; background: transparent; }
 html:root .xcss-admin-shell .xcss-table { width: 100%; min-width: 48rem; margin: 0; border-collapse: collapse; font-size: inherit; }
-html:root .xcss-admin-shell .xcss-table :is(th, td) { padding: 8px 11px; border-bottom: 1px solid var(--xcss-block-border, #e3e3e3); text-align: start; vertical-align: top; font-weight: 400; line-height: 1.5; }
-html:root .xcss-admin-shell .xcss-table thead th { color: var(--xcss-block-muted, #5f5f5f); white-space: nowrap; }
-html:root .xcss-admin-shell .xcss-table tr > :first-child { padding-inline-start: 11px; }
-html:root .xcss-admin-shell .xcss-table tr > :last-child { padding-inline-end: 11px; }
+html:root .xcss-admin-shell .xcss-table :is(th, td) { padding: max(0px, calc((var(--xscs-row) - 1lh - 1px) / 2)) var(--xscs-frame-inset); border-bottom: 1px solid var(--xcss-block-border); text-align: start; vertical-align: top; font-weight: 400; line-height: 1.5; }
+html:root .xcss-admin-shell .xcss-table thead th { color: var(--xcss-block-muted); white-space: nowrap; }
 html:root .xcss-admin-shell .xcss-table tbody tr:last-child > * { border-bottom: 0; }
 html:root .xcss-admin-shell .xcss-table tbody tr:hover { background: color-mix(in srgb, currentColor 3%, transparent); }
-html:root .xcss-admin-shell .xcss-table th a { display: inline-flex; align-items: center; min-height: 28px; color: inherit; text-decoration: none; overflow-wrap: anywhere; }
+html:root .xcss-admin-shell .xcss-table th a { display: inline-flex; min-height: 0; color: inherit; text-decoration: none; overflow-wrap: anywhere; }
 html:root .xcss-admin-shell .xcss-table th a:hover { text-decoration: underline; }
-html:root .xcss-admin-shell .xcss-table .xcss-button { min-height: 28px; padding: 3px 0; }
-html:root .xcss-admin-shell .xcss-table .xcss-actions { gap: 4px 12px; }
+html:root .xcss-admin-shell .xcss-table .xcss-button { min-height: var(--xscs-row); padding-block: 7.2px; }
+html:root .xcss-admin-shell .xcss-table td:has(> .xcss-actions) { padding-block: 0; }
 html:root .xcss-admin-shell .xcss-table code { font-size: inherit; }
-html:root .xcss-admin-shell .xscs-status { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; min-height: 28px; padding: 3px 8px; color: var(--xcss-block-muted, #5f5f5f); background: color-mix(in srgb, currentColor 6%, transparent); overflow-wrap: anywhere; }
+html:root .xcss-admin-shell .xscs-status { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; min-height: 0; padding: 0; color: var(--xcss-block-muted); background: transparent; overflow-wrap: anywhere; }
+html:root .xcss-admin-shell .xscs-panel > .xscs-status { min-height: var(--xscs-row); padding-inline: var(--xscs-frame-inset); }
 .xscs-status::before { content: ""; width: 5px; height: 5px; flex: 0 0 5px; background: currentColor; border-radius: 50%; }
-html:root .xcss-admin-shell .xscs-status--online, html:root .xcss-admin-shell .xscs-status[data-state="online"] { color: var(--xcss-text-primary); }
-html:root .xcss-admin-shell .xscs-status--pending, html:root .xcss-admin-shell .xscs-status[data-state="pending"] { border-bottom: 1px dashed currentColor; }
-html:root .xcss-admin-shell .xscs-status--revoked, html:root .xcss-admin-shell .xscs-status[data-state="revoked"] { color: var(--xcss-text-danger, #a73d46); }
+html:root .xcss-admin-shell .xscs-status[data-state="online"] { color: var(--xcss-text-primary); }
+html:root .xcss-admin-shell .xscs-status[data-state="revoked"] { color: var(--xcss-text-danger); }
 
-html:root .xcss-admin-shell :is(.xcss-error, .xcss-empty, .xcss-loading, .xscs-empty) { min-width: 0; margin: 0; padding: var(--xscs-gap); border: 1px solid var(--xcss-block-border, #e3e3e3); border-radius: 0; background: var(--xcss-bg-panel, #f2f2f2); overflow-wrap: anywhere; }
-html:root .xcss-admin-shell .xcss-error { color: var(--xcss-text-danger, #a73d46); }
-html:root .xcss-admin-shell .xcss-request-id { margin-block-start: 8px; font-size: inherit; }
-html:root .xcss-admin-shell .xcss-toast-stack { margin: 0 var(--xscs-gap) var(--xscs-gap); gap: 8px; }
-html:root .xcss-admin-shell .xcss-toast { margin: 0; padding: 10px var(--xscs-gap); border: 1px solid var(--xcss-block-border, #e3e3e3); background: var(--xcss-bg-panel); }
-.xcss-content-stack pre, .xscs-panel pre { max-width: 100%; max-height: 30rem; margin: 0; padding: 12px; border: 1px solid var(--xcss-block-border, #e3e3e3); white-space: pre-wrap; overflow: auto; overflow-wrap: anywhere; line-height: 1.65; }
+html:root .xcss-admin-shell :is(.xcss-error, .xcss-empty, .xcss-loading, .xscs-empty) { --xcss-server-corner-extent: var(--xcss-server-corner-notification); min-width: 0; min-height: var(--xscs-row); margin: 0; padding: 7.2px var(--xscs-text-inset); border: 0; border-radius: 0; background: var(--xcss-bg-panel); overflow-wrap: anywhere; }
+html:root .xcss-admin-shell .xcss-error { color: var(--xcss-text-danger); }
+html:root .xcss-admin-shell .xcss-request-id { margin: 0; font-size: inherit; }
+html:root .xcss-admin-shell .xcss-toast-stack { margin: 0 var(--xscs-page-inset) var(--xscs-page-inset); gap: var(--xscs-gap); }
+html:root .xcss-admin-shell .xcss-toast { margin: 0; padding: 7.2px var(--xscs-text-inset); border: 0; background: var(--xcss-bg-panel); }
+html:root .xcss-admin-shell :is(.xcss-content-stack, .xscs-panel) pre { --xcss-server-corner-extent: var(--xcss-server-corner-panel); max-width: 100%; max-height: 30rem; margin: 0; padding: 7.2px var(--xscs-frame-inset); border: 1px solid var(--xcss-block-border); white-space: pre-wrap; overflow: auto; overflow-wrap: anywhere; line-height: 1.5; }
 .xcss-content-stack code, .xscs-panel code { user-select: all; overflow-wrap: anywhere; }
-.xscs-sensitive { min-width: 0; padding: 12px; border: 1px solid var(--xcss-block-border, #e3e3e3); background: var(--xcss-bg-page); overflow-wrap: anywhere; user-select: all; }
-.xscs-step-list { display: grid; gap: 8px; margin: 0; padding-inline-start: 1.5em; line-height: 1.65; }
-.xscs-step-list li { padding-inline-start: 4px; }
-html:root .xcss-admin-shell dl { display: grid; grid-template-columns: minmax(8rem, .7fr) minmax(0, 2fr); gap: 8px var(--xscs-gap); }
-html:root .xcss-admin-shell dt { color: var(--xcss-block-muted, #5f5f5f); }
-html:root .xcss-admin-shell dd { min-width: 0; overflow-wrap: anywhere; }
-html:root .xcss-admin-shell .xcss-dialog { width: min(40rem, calc(100% - 2rem)); padding: var(--xscs-gap); border: 1px solid var(--xcss-block-border); background: var(--xcss-bg-panel); }
+html:root .xcss-admin-shell .xscs-sensitive { display: block; min-height: var(--xscs-row); padding: 7.2px var(--xscs-frame-inset); background: var(--xcss-bg-page); user-select: all; }
+.xscs-step-list { display: grid; gap: 0; margin: 0; padding-inline: calc(var(--xscs-frame-inset) + 1.5em) var(--xscs-frame-inset); line-height: 1.5; }
+.xscs-step-list li { min-height: var(--xscs-row); padding-block: 7.2px; }
+html:root .xcss-admin-shell dl { display: grid; grid-template-columns: minmax(8rem, .7fr) minmax(0, 2fr); gap: 0; }
+html:root .xcss-admin-shell :is(dt, dd) { display: flex; align-items: center; min-width: 0; min-height: var(--xscs-row); padding: 7.2px var(--xscs-frame-inset); overflow-wrap: anywhere; }
+html:root .xcss-admin-shell dt { color: var(--xcss-block-muted); }
+html:root .xcss-admin-shell .xcss-dialog { width: min(40rem, calc(100% - 2rem)); padding: var(--xscs-text-inset); border: 0; background: var(--xcss-bg-panel); }
+
+/* Account controls are explicitly compact; ordinary fields remain 44px. */
+html:root .xcss-admin-shell .xcss-account-page > .xcss-content-panel { width: min(100%, 36rem); }
+html:root .xcss-admin-shell .xcss-account-form { gap: 0; }
+html:root .xcss-admin-shell .xcss-account-fields { grid-template-columns: max-content minmax(0, 1fr); gap: var(--xscs-gap) 0; padding-inline: var(--xscs-frame-inset); }
+html:root .xcss-admin-shell .xcss-account-form .xcss-form-field { display: contents; }
+html:root .xcss-admin-shell .xcss-account-form .xcss-form-field > span { padding-inline-end: var(--xscs-text-inset); }
+html:root .xcss-admin-shell .xcss-account-form .xcss-input { --xscs-control-height: var(--xscs-row); }
+html:root .xcss-admin-shell .xcss-account-page :is(h1, h2, p) { min-height: var(--xscs-row); padding: 7.2px var(--xscs-frame-inset); }
 
 @media (max-width: 64rem) {
   .xscs-split { grid-template-columns: minmax(0, 1fr); }
   .xscs-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (max-width: 48rem) {
-  :root { --xscs-gap: 14px; }
   html:root .xcss-admin-shell .xcss-header-navigation-slot { flex-basis: 100%; }
   html:root .xcss-admin-shell .xcss-header-actions { margin-inline-start: 0; }
-  html:root .xcss-admin-shell .xcss-header-navigation :is(a, button) { padding-inline: 9px; }
   html:root .xcss-admin-shell .xscs-form-grid { grid-template-columns: minmax(0, 1fr); }
-  .xscs-toolbar { align-items: stretch; }
   .xscs-toolbar > :is(label, .xscs-field) { flex: 1 1 100%; }
   html:root .xcss-admin-shell .xcss-table { min-width: 44rem; }
+  html:root .xcss-admin-shell .xcss-account-fields { grid-template-columns: minmax(0, 1fr); gap: 0; }
+  html:root .xcss-admin-shell .xcss-account-form .xcss-form-field { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0; }
 }
-@media (max-width: 30rem) {
+@media (max-width: 36rem) {
   .xscs-metrics { grid-template-columns: minmax(0, 1fr); }
-  html:root .xcss-admin-shell .xcss-header-brand-navigation { column-gap: 8px; }
   html:root .xcss-admin-shell .xcss-header-navigation { flex-basis: 100%; }
-  html:root .xcss-admin-shell dl { grid-template-columns: minmax(0, 1fr); gap: 4px; }
-  html:root .xcss-admin-shell dd + dt { margin-block-start: 8px; }
+  html:root .xcss-admin-shell dl { grid-template-columns: minmax(0, 1fr); }
 }
 @media (forced-colors: active) {
   html:root .xcss-admin-shell :is(.xscs-panel, .xscs-metric, .xcss-input, .xscs-sensitive, .xcss-table-scroll) { border-color: CanvasText; }
+  html:root .xcss-admin-shell .xcss-select-option[data-active="true"] { color: HighlightText; background: Highlight; }
   html:root .xcss-admin-shell :where(button, a, input, select, textarea, [tabindex]):focus-visible { outline-color: Highlight; }
   html:root .xcss-admin-shell .xcss-button:disabled { color: GrayText; opacity: 1; }
 }

@@ -31,6 +31,7 @@ try {
       const authorizations = new Map([[device.id, 'c'.repeat(36)], [controller.id, 'd'.repeat(36)]]);
       let submitted = 0, createdCount = 0, accessRevision = 0, accessWrites = 0;
       let authorizationWrites = 0, revokeRequests = 0;
+      let holdNextCreate = false, pendingCreate = null;
       let nextAccessRead = 'ok', pendingAccess = null, conflictNextWrite = false;
       const revision = () => accessRevision.toString(16).padStart(64, '0');
       const access = id => ({peer_ids: edges.has('allowed') ? [id === device.id ? controller.id : device.id] : [], revision: revision()});
@@ -45,7 +46,9 @@ try {
             const created = {...device, id: randomUUID(), name: request.postDataJSON().name, role: request.postDataJSON().role, addresses: [], addresses_at_micros: null, registered: false, client_online: false, pairing_pending: true, capabilities: null, diagnostics: null};
             devices.push(created);
             authorizations.set(created.id, 'b'.repeat(36));
-            return route.fulfill({status: 201, json: {device: created, manager_id: randomUUID(), token: 'b'.repeat(36)}});
+            const reply = {status: 201, json: {device: created, manager_id: randomUUID(), token: 'b'.repeat(36)}};
+            if (holdNextCreate) { holdNextCreate = false; pendingCreate = {route, reply}; return; }
+            return route.fulfill(reply);
           }
           return route.fulfill({json: devices});
         }
@@ -127,10 +130,33 @@ try {
         pendingAccess = null;
         await held.route.fulfill({json: access(held.id)});
       };
-      const screenshot = async name => {
+      const screenshot = async (name, fullPage = true) => {
         if (evidenceDirectory) {
-          await page.screenshot({path: resolve(evidenceDirectory, `${engine.name()}-fixture-${name}.png`), fullPage: true});
+          await page.screenshot({path: resolve(evidenceDirectory, `${engine.name()}-fixture-${name}.png`), fullPage});
         }
+      };
+
+      const select = name => page.getByRole('combobox', {name, exact: true});
+      const openSelect = async name => {
+        const control = select(name);
+        if (await control.getAttribute('aria-expanded') !== 'true') await control.click();
+        const panel = page.locator('#' + await control.getAttribute('aria-controls'));
+        await expect(control).toHaveAttribute('aria-expanded', 'true');
+        await expect(panel).toBeVisible();
+        return {control, panel};
+      };
+      const chooseOption = async (name, label) => {
+        const {control, panel} = await openSelect(name);
+        await panel.getByRole('option', {name: label, exact: true}).click();
+        await expect(control).toHaveAttribute('aria-expanded', 'false');
+        await expect(control).toBeFocused();
+        await expect(control).toContainText(label);
+      };
+      const assertMenuFitsViewport = async panel => {
+        const box = await panel.boundingBox();
+        assert.ok(box);
+        const viewport = page.viewportSize();
+        assert.ok(box.x >= 7.5 && box.y >= 7.5 && box.x + box.width <= viewport.width - 7.5 && box.y + box.height <= viewport.height - 7.5);
       };
 
       const wasm = page.waitForResponse(response => new URL(response.url()).pathname.endsWith('.wasm') && response.status() === 200);
@@ -152,16 +178,73 @@ try {
       await screenshot('instances-mobile');
       await page.setViewportSize({width: 1440, height: 1000});
 
+      // Shared zxs geometry and custom listbox, including usable square fallback.
+      let menu = await openSelect('筛选角色');
+      await expect(menu.control).toHaveCSS('height', '36px');
+      await expect(page.getByRole('searchbox', {name: '搜索实例', exact: true})).toHaveCSS('height', '44px');
+      await expect(menu.panel.getByRole('option').first()).toHaveCSS('height', '36px');
+      await expect(menu.control).toHaveAttribute('data-xcss-server-corner-profile', 'zxs-g4');
+      await expect(menu.panel).toHaveAttribute('data-xcss-server-corner-profile', 'zxs-g4');
+      await assertMenuFitsViewport(menu.panel);
+      await screenshot('instances-dropdown-desktop', false);
+      await menu.control.press('Escape');
+      await expect(menu.control).toBeFocused();
+      await expect(menu.panel).toBeHidden();
+
+      await menu.control.press('ArrowDown');
+      await menu.control.press('ArrowDown');
+      await menu.control.press('Enter');
+      await expect(menu.control).toContainText('控制端');
+      await expect(menu.control).toBeFocused();
+      await menu.control.press('End');
+      await menu.control.press('Escape');
+      await expect(menu.control).toContainText('控制端');
+      await expect(menu.control).toHaveAttribute('aria-expanded', 'false');
+      await menu.control.press(' ');
+      await menu.control.press('Tab');
+      await expect(menu.panel).toBeHidden();
+      await expect(menu.control).not.toBeFocused();
+      await chooseOption('筛选角色', '全部角色');
+
+      await page.setViewportSize({width: 390, height: 844});
+      menu = await openSelect('筛选角色');
+      await assertMenuFitsViewport(menu.panel);
+      await screenshot('instances-dropdown-mobile', false);
+      await page.setViewportSize({width: 390, height: 250});
+      await expect(menu.panel).toBeHidden();
+      await select('筛选角色').scrollIntoViewIfNeeded();
+      await select('筛选角色').evaluate(element => window.scrollBy(0, element.getBoundingClientRect().bottom - innerHeight + 8));
+      menu = await openSelect('筛选角色');
+      await assertMenuFitsViewport(menu.panel);
+      assert.ok((await menu.panel.boundingBox()).y + (await menu.panel.boundingBox()).height <= (await menu.control.boundingBox()).y - 3);
+      await menu.control.press('Escape');
+      await page.setViewportSize({width: 1440, height: 1000});
+
+      await page.getByRole('button', {name: '切换到深色模式', exact: true}).click();
+      menu = await openSelect('筛选角色');
+      await screenshot('instances-dropdown-dark', false);
+      await menu.control.press('Escape');
+      await page.getByRole('button', {name: '切换到浅色模式', exact: true}).click();
+      await page.emulateMedia({forcedColors: 'active'});
+      menu = await openSelect('筛选角色');
+      await expect(menu.panel).toHaveAttribute('data-xcss-server-corner-profile', 'zxs-g4');
+      await expect(menu.panel).toHaveAttribute('data-xcss-server-corner-state', 'fallback');
+      await expect(menu.panel).toHaveAttribute('data-xcss-server-corner-reason', 'forced-colors');
+      await chooseOption('筛选角色', '被控端');
+      await expect(menu.panel).toBeHidden();
+      await page.emulateMedia({forcedColors: 'none'});
+      await chooseOption('筛选角色', '全部角色');
+
       // The user's search and role selection survive a real instance refresh.
       await page.getByRole('searchbox', {name: '搜索实例', exact: true}).fill('主控端');
-      await page.getByRole('combobox', {name: '筛选角色', exact: true}).selectOption('controller');
+      await chooseOption('筛选角色', '控制端');
       await refresh();
       await expect(page.getByRole('searchbox', {name: '搜索实例', exact: true})).toHaveValue('主控端');
-      await expect(page.getByRole('combobox', {name: '筛选角色', exact: true})).toHaveValue('controller');
+      await expect(select('筛选角色')).toContainText('控制端');
       await expect(page.getByRole('link', {name: controller.name, exact: true})).toBeVisible();
       await expect(page.getByRole('link', {name: device.name, exact: true})).toHaveCount(0);
       await page.getByRole('searchbox', {name: '搜索实例', exact: true}).fill('');
-      await page.getByRole('combobox', {name: '筛选角色', exact: true}).selectOption('all');
+      await chooseOption('筛选角色', '全部角色');
 
       nextAccessRead = 'hold';
       await page.getByRole('link', {name: device.name, exact: true}).click();
@@ -293,8 +376,25 @@ try {
       const create = page.getByRole('button', {name: '创建实例并生成密码', exact: true});
       await expect(create).toBeDisabled();
       await page.getByLabel('实例名称', {exact: true}).fill('新增控制端');
-      await page.getByRole('combobox', {name: '新实例角色', exact: true}).selectOption('controller');
-      await create.click();
+      const newRole = select('新实例角色');
+      await newRole.focus();
+      await newRole.press('Enter');
+      await newRole.press('End');
+      await newRole.press('Enter');
+      await expect(newRole).toContainText('控制端');
+      assert.equal(createdCount, 0, 'Enter in the role selector must not submit the form');
+      await newRole.press('Enter');
+      await expect(newRole).toHaveAttribute('aria-expanded', 'true');
+      holdNextCreate = true;
+      // Avoid pointerdown dismissal: busy must itself close and disable the open menu.
+      await create.evaluate(button => button.click());
+      await expect.poll(() => pendingCreate !== null).toBe(true);
+      await expect(newRole).toBeDisabled();
+      await expect(newRole).toHaveAttribute('aria-expanded', 'false');
+      await expect(page.locator('#' + await newRole.getAttribute('aria-controls'))).toBeHidden();
+      const heldCreate = pendingCreate;
+      pendingCreate = null;
+      await heldCreate.route.fulfill(heldCreate.reply);
       await expect(page.getByRole('heading', {name: '新增控制端', exact: true})).toBeVisible();
       await expect(page.getByText('b'.repeat(36), {exact: true})).toBeVisible();
       assert.equal(createdCount, 1);
@@ -308,6 +408,15 @@ try {
       await expect(page.getByRole('heading', {name: '实例不存在或暂不可读取', exact: true})).toBeVisible();
       await page.getByRole('link', {name: '返回实例列表', exact: true}).click();
       await expect(page.getByRole('heading', {name: '实例管理', exact: true})).toBeVisible();
+      // Display labels can be translated while the submitted/filter value remains a role key.
+      const translated = new URL(server.resolvedUrls.local[0]);
+      translated.searchParams.set('lang', 'en');
+      translated.hash = 'instances';
+      await page.goto(translated.href);
+      await expect(page.getByRole('heading', {name: 'Instance management', exact: true})).toBeVisible();
+      await chooseOption('Filter by role', 'Controller');
+      await expect(page.getByRole('link', {name: controller.name, exact: true})).toBeVisible();
+      await expect(page.getByRole('link', {name: device.name, exact: true})).toHaveCount(0);
       assert.deepEqual(errors, []);
       console.log(`${engine.name()}: instance creation, permission recovery/CAS, polling drafts, filters, diagnostics, responsive layout and 404 passed.`);
     } finally {

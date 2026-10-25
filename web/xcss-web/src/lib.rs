@@ -3,6 +3,8 @@ use xcss_web::component::{component_props_builder, component_view};
 pub mod common;
 mod contracts;
 mod models;
+mod select;
+use select::{Select, SelectOption};
 use common::*;
 use models::*;
 use xcss_web::prelude::*;
@@ -230,12 +232,12 @@ fn application() -> impl IntoView {
                     h::input().class("xcss-input").name("instance_name").maxlength("32").required(true)
                         .prop("value", move || new_name.get()).on(xcss_web::ev::input, move |event| new_name.set(event_target_value(&event)))
                         .disabled(IntoAttributeValue::into_attribute_value(move || busy.get())))),
-                h::label().class("xscs-field").child((h::span().child(t("新实例角色", "New instance role")),
-                    h::select().class("xcss-input").name("instance_role")
-                        .prop("value", move || if new_role.get() == DeviceRole::Controller { "controller" } else { "controlled" })
-                        .on(xcss_web::ev::change, move |event| new_role.set(if event_target_value(&event) == "controller" { DeviceRole::Controller } else { DeviceRole::Controlled }))
-                        .disabled(IntoAttributeValue::into_attribute_value(move || busy.get()))
-                        .child((h::option().value("controlled").child(t("被控端", "Controlled host")), h::option().value("controller").child(t("控制端", "Controller")))))),
+                component_view(&Select, component_props_builder(&Select)
+                    .label(t("新实例角色", "New instance role"))
+                    .options(Signal::derive(|| vec![SelectOption::new("controlled", t("被控端", "Controlled host")), SelectOption::new("controller", t("控制端", "Controller"))]))
+                    .value(Signal::derive(move || if new_role.get() == DeviceRole::Controller { "controller".into() } else { "controlled".into() }))
+                    .on_change(Callback::new(move |value: String| new_role.set(if value == "controller" { DeviceRole::Controller } else { DeviceRole::Controlled })))
+                    .disabled(Signal::derive(move || busy.get())).build()),
                 h::p().class("xscs-hint").child(t("控制端用于发起连接；被控端用于共享这台主机。角色在创建后保持固定。", "Controllers initiate connections; controlled hosts share their desktop. The role is fixed after creation.")),
                 h::div().class("xcss-actions").child((
                     h::button().class("xcss-button xscs-primary").r#type("submit").disabled(IntoAttributeValue::into_attribute_value(move || busy.get() || !valid_name(&new_name.get())))
@@ -310,9 +312,10 @@ fn instances(
             h::div().class("xscs-toolbar").child((
                 h::label().class("xscs-field").child((h::span().child(t("搜索实例", "Search instances")), h::input().class("xcss-input").r#type("search")
                     .placeholder(t("名称、实例 ID 或平台", "Name, instance ID or platform")).prop("value", move || query.get()).on(xcss_web::ev::input, move |event| query.set(event_target_value(&event))))),
-                h::label().class("xscs-field").child((h::span().child(t("筛选角色", "Filter by role")), h::select().class("xcss-input").prop("value", move || role_filter.get())
-                    .on(xcss_web::ev::change, move |event| role_filter.set(event_target_value(&event)))
-                    .child((h::option().value("all").child(t("全部角色", "All roles")), h::option().value("controller").child(t("控制端", "Controller")), h::option().value("controlled").child(t("被控端", "Controlled host")))))),
+                component_view(&Select, component_props_builder(&Select)
+                    .label(t("筛选角色", "Filter by role"))
+                    .options(Signal::derive(|| vec![SelectOption::new("all", t("全部角色", "All roles")), SelectOption::new("controller", t("控制端", "Controller")), SelectOption::new("controlled", t("被控端", "Controlled host"))]))
+                    .value(role_filter.into()).on_change(Callback::new(move |value| role_filter.set(value))).build()),
                 h::p().class("xscs-hint").role("status").child(IntoRender::into_render(move || format!("{} / {}", filtered.with(Vec::len), devices.with(Vec::len)))),
             )), failure(error),
             IntoRender::into_render(move || (!loaded.get()).then(|| h::p().class("xscs-hint").child(t("正在读取实例…", "Loading instances…")))),

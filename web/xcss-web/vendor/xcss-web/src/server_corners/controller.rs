@@ -539,6 +539,7 @@ struct Record {
     transition_dirty: bool,
     original_state: Option<String>,
     original_reason: Option<String>,
+    original_profile: Option<String>,
     decoration: Option<HtmlElement>,
     foreground: Option<SvgsvgElement>,
     restored_style: Option<String>,
@@ -554,6 +555,7 @@ impl Record {
             transition_dirty: true,
             original_state: node.get_attribute("data-xcss-server-corner-state"),
             original_reason: node.get_attribute("data-xcss-server-corner-reason"),
+            original_profile: node.get_attribute("data-xcss-server-corner-profile"),
             decoration: None,
             foreground: None,
             restored_style: None,
@@ -576,6 +578,8 @@ impl Record {
         Ok(())
     }
     fn mark(&self, status: &str, reason: Option<&str>) -> Result<(), JsValue> {
+        self.node
+            .set_attribute("data-xcss-server-corner-profile", geometry::PROFILE)?;
         self.node
             .set_attribute("data-xcss-server-corner-state", status)?;
         if let Some(reason) = reason {
@@ -677,6 +681,7 @@ fn restore(
         for (name, value) in [
             ("data-xcss-server-corner-state", &record.original_state),
             ("data-xcss-server-corner-reason", &record.original_reason),
+            ("data-xcss-server-corner-profile", &record.original_profile),
         ] {
             if let Some(value) = value {
                 record.node.set_attribute(name, value)?;
