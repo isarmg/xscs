@@ -188,6 +188,8 @@ try {
         const row=page.locator('tbody tr').filter({has:page.getByRole('link',{name,exact:true})});
         const before=await rowGeometry(name); assertCenteredRow(before);
         await row.getByRole('button',{name:remove,exact:true}).click();
+        await expect(row.getByRole('button',{name:cancel,exact:true})).toBeVisible();
+        await expect(row.getByRole('button',{name:cancel==='Cancel'?'Confirm delete':'确认删除',exact:true})).toBeVisible();
         const confirming=await rowGeometry(name); assertCenteredRow(confirming);
         assert.ok(Math.abs(confirming.y-before.y)<0.5, 'confirmation must not move the row');
         for(let index=0;index<before.columns.length;index++) {
@@ -195,6 +197,7 @@ try {
           assert.ok(Math.abs(confirming.columns[index].width-before.columns[index].width)<0.5, 'confirmation must not resize operation/table columns');
         }
         await row.getByRole('button',{name:cancel,exact:true}).click();
+        await expect(row.getByRole('button',{name:remove,exact:true})).toBeVisible();
         const after=await rowGeometry(name); assertCenteredRow(after);
         assert.ok(Math.abs(after.y-before.y)<0.5);
         for(let index=0;index<before.columns.length;index++) assert.ok(Math.abs(after.columns[index].width-before.columns[index].width)<0.5);
