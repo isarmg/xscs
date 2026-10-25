@@ -76,3 +76,17 @@ python3 scripts/vendor-xcss-web.py --component assets --destination /absolute/co
 见两个内部 crate 的 `README.md` 与 `LICENSE`。共享组件和本仓库自有代码沿用仓库许可证。
 `SOURCE.json` 为源码快照逐文件记录 SHA-256，包含这些 README 和许可证。
 独立第三方依赖仍保留其真实 Cargo 包名和各自许可证。
+
+## XSCS 内置副本的 G4 适配
+
+此副本由 XSCS 仓库维护。`SOURCE.json` 的 `base_revision` 保留最初导入的
+xcss 来源修订；当前实际源码由 XSCS 产品提交和逐文件 SHA-256 绑定。
+
+`src/server_corners/profile.rs`、`geometry.rs` 及其几何回归来自 ZXS
+`f009be2abbdcc56e5b7e8344461c97885a2e3f13` 的
+`src/interface/src/contours/{profile,geometry}.rs` 与
+`test/interface/unit/contours/geometry/tests.rs`。原项目：
+https://github.com/isarmg/zxs 。采用其圆弧比例 0.4 的 `zxs-g4` 连续轮廓，
+保留本仓库的绘制、CSS 属性与控制器生命周期，并增加可恢复的 profile 标识。
+源码来源、许可和误差界还记录在 `src/server_corners/mod.rs` 中。
+此适配不产生对 ZXS 或 xcss 外部仓库的构建、安装或运行依赖。
