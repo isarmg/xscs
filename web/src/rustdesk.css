@@ -126,7 +126,7 @@ html:root .xcss-admin-shell .xscs-panel details > summary { cursor: pointer; }
 .xscs-panel-heading { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 0; min-width: 0; }
 .xscs-panel-heading > div { display: grid; gap: 0; min-width: 0; }
 html:root .xcss-admin-shell .xscs-panel .xscs-panel { --xcss-server-corner-extent: 0px; padding: 0; border-width: 1px 0 0; background: transparent; }
-.xscs-split { display: grid; grid-template-columns: minmax(0, 2fr) minmax(18rem, 1fr); gap: var(--xscs-gap); align-items: start; min-width: 0; }
+.xscs-split { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--xscs-gap); align-items: start; min-width: 0; }
 .xscs-split > * { min-width: 0; }
 .xscs-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--xscs-gap); min-width: 0; }
 html:root .xcss-admin-shell .xscs-metric { display: grid; align-content: start; gap: 0; padding: 0; }
@@ -286,7 +286,6 @@ html:root .xcss-admin-shell .xcss-account-form .xcss-input { --xscs-control-heig
 html:root .xcss-admin-shell .xcss-account-page :is(h1, h2, p) { min-height: var(--xscs-row); padding: 7.2px var(--xscs-frame-inset); }
 
 @media (max-width: 64rem) {
-  .xscs-split { grid-template-columns: minmax(0, 1fr); }
   .xscs-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (max-width: 48rem) {
