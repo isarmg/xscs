@@ -208,11 +208,12 @@ async fn create_device(
     ContractJson(value): ContractJson<CreateDeviceRequest>,
 ) -> AppResult<Response> {
     let name = value.name.as_deref().unwrap_or("新实例");
-    let ticket = db::create_device(
+    let ticket = db::create_device_with_backend(
         &state.pool,
         &state.secrets,
         name,
         value.role,
+        value.backend,
         &actor.subject,
     )
     .await?;
@@ -673,6 +674,7 @@ async fn client_connect(
         .clone()
         .ok_or(AppError::Unauthorized)?;
     let binding = db::binding(&state.pool, &device).await?;
+    let backend = device.backend()?;
     if headers
         .get("sec-websocket-protocol")
         .and_then(|v| v.to_str().ok())
@@ -694,9 +696,9 @@ async fn client_connect(
             let _permit = permit;
             let mut pending = None;
             let session = uuid::Uuid::new_v4().to_string();
-            tracing::info!(event = "xscs.instance.connected", instance_id = %binding.device_id, instance_type = "rustdesk", task_id = session.as_str(), request_id = request_id.as_str());
+            tracing::info!(event = "xscs.instance.connected", instance_id = %binding.device_id, instance_type = backend.as_str(), task_id = session.as_str(), request_id = request_id.as_str());
             if let Err(error) = serve_client(&state, socket, &binding, &authenticated_credential_hash, &session, &mut pending).await {
-                tracing::warn!(event = "xscs.instance.connection_failed", instance_id = %binding.device_id, instance_type = "rustdesk", task_id = session.as_str(), request_id = request_id.as_str(), error = %error, "client session ended with an error");
+                tracing::warn!(event = "xscs.instance.connection_failed", instance_id = %binding.device_id, instance_type = backend.as_str(), task_id = session.as_str(), request_id = request_id.as_str(), error = %error, "client session ended with an error");
             }
             if let Some(operation) = pending {
                 let _ = state.operations.disconnected(&operation).await;
@@ -708,7 +710,7 @@ async fn client_connect(
             .bind(&session)
             .execute(&state.pool)
             .await;
-            tracing::info!(event = "xscs.instance.disconnected", instance_id = %binding.device_id, instance_type = "rustdesk", task_id = session.as_str(), request_id = request_id.as_str());
+            tracing::info!(event = "xscs.instance.disconnected", instance_id = %binding.device_id, instance_type = backend.as_str(), task_id = session.as_str(), request_id = request_id.as_str());
         }))
 }
 async fn receive(socket: &mut WebSocket) -> AppResult<ClientMessage> {
@@ -762,6 +764,9 @@ async fn serve_client(
     }
     let id = binding.device_id.to_string();
     let policy_identity = db::get_device(&state.pool, &id).await?;
+    if capabilities.backend != policy_identity.backend()? {
+        return Err(AppError::Unauthorized);
+    }
     if !capabilities
         .os
         .supports_role(crate::access::role(&policy_identity)?)
@@ -834,7 +839,10 @@ async fn serve_client(
                         let message:ClientMessage=serde_json::from_str(&text).map_err(|_|AppError::BadRequest("Client 消息无效".into()))?;
                         match message{
                             ClientMessage::Heartbeat{diagnostics,addresses}=>{
-                                if let Some(snapshot)=&diagnostics{crate::operations::validate_diagnostics(snapshot)?;}
+                                if let Some(snapshot)=&diagnostics{
+                                    crate::operations::validate_diagnostics(snapshot)?;
+                                    if snapshot.backend != capabilities.backend { return Err(AppError::BadRequest("Client 诊断类型与实例不匹配".into())); }
+                                }
                                 crate::access::report_addresses(&state.pool,binding,session,&addresses).await?;
                                 sqlx::query("UPDATE devices SET health_at_micros=?,diagnostics_json=COALESCE(?,diagnostics_json) WHERE device_id=? AND session_id=? AND revoked_at_micros IS NULL")
                                     .bind(db::now_micros()?).bind(diagnostics.as_ref().map(serde_json::to_string).transpose().map_err(|_|AppError::Unauthorized)?)
@@ -850,6 +858,10 @@ async fn serve_client(
                                 // Liveness evidence does not extend the fixed 90s execution budget/120s lease.
                             }
                             ClientMessage::Result{operation_id,report}=>{
+                                if let xscs_protocol::Report::DiagnosticsRead { snapshot } = &report
+                                    && snapshot.backend != capabilities.backend {
+                                    return Err(AppError::BadRequest("Client 诊断类型与实例不匹配".into()));
+                                }
                                 let operation = if let Some(operation)=pending.as_ref().filter(|op|op.operation.operation_id==operation_id){operation.clone()}else{state.operations.receipt_operation(&operation_id,binding).await?};
                                 let fingerprint=state.operations.task(&operation)?.fingerprint().map_err(|_|AppError::Unauthorized)?;
                                 let report_digest=xscs_protocol::report_digest(&report).map_err(|_|AppError::Unauthorized)?;
@@ -1241,10 +1253,9 @@ mod tests {
             )
             .await
             .unwrap();
-            let host =
-                db::create_device(&pool, &secrets, "Host", InstanceRole::Controlled, "admin")
-                    .await
-                    .unwrap();
+            let host = db::create_device_with_backend(
+                &pool, &secrets, "Host", InstanceRole::Controlled, Backend::OneKvm, "admin",
+            ).await.unwrap();
             let controller_token = db::random_token();
             let host_token = db::random_token();
             let controller_binding = db::enroll(
@@ -1280,18 +1291,15 @@ mod tests {
                 diagnostics: true,
             };
             let mut sockets = Vec::new();
-            for (binding, token, os, allowed) in [
-                (&host_binding, &host_token, ClientOs::AndroidAarch64, false),
-                (
-                    &controller_binding,
-                    &controller_token,
-                    ClientOs::IosAarch64,
-                    true,
-                ),
-                (&host_binding, &host_token, ClientOs::LinuxX86_64, true),
+            for (binding, token, os, backend, allowed) in [
+                (&host_binding, &host_token, ClientOs::AndroidAarch64, Backend::OneKvm, false),
+                (&host_binding, &host_token, ClientOs::LinuxX86_64, Backend::Rustdesk, false),
+                (&controller_binding, &controller_token, ClientOs::IosAarch64, Backend::Rustdesk, true),
+                (&host_binding, &host_token, ClientOs::LinuxAarch64, Backend::OneKvm, true),
             ] {
                 let mut caps = caps.clone();
                 caps.os = os;
+                caps.backend = backend;
                 let mut request = format!("ws://{address}{}", xscs_protocol::CONNECT_PATH)
                     .into_client_request()
                     .unwrap();
@@ -1368,6 +1376,16 @@ mod tests {
                 ))
                 .await
                 .unwrap();
+            sqlx::query("UPDATE devices SET diagnostics_json=?,capabilities_json='invalid' WHERE device_id=?")
+                .bind(r#"{"backend":"one_kvm","execution_mode":"embedded","integration_state":"ready","rustdesk_version":null,"one_kvm_version":null}"#)
+                .bind(&host.device.id)
+                .execute(&pool)
+                .await
+                .unwrap();
+            assert!(matches!(
+                db::list_devices(&pool).await,
+                Err(AppError::Internal(_))
+            ));
             loop {
                 let frame = sockets[0].next().await.unwrap().unwrap();
                 if let Frame::Text(text) = frame {

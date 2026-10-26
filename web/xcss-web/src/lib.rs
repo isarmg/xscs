@@ -4,9 +4,9 @@ pub mod common;
 mod contracts;
 mod models;
 mod select;
-use select::{Select, SelectOption};
 use common::*;
 use models::*;
+use select::{Select, SelectOption};
 use xcss_web::prelude::*;
 use xcss_web::{
     api::{self, ApiError, RequestOptions},
@@ -43,6 +43,18 @@ fn role(v: &Device) -> String {
         t("被控端", "Controlled host")
     }
 }
+fn backend(v: &Device) -> &'static str {
+    match v.backend {
+        DeviceBackend::Rustdesk => "RustDesk",
+        DeviceBackend::OneKvm => "One-KVM",
+    }
+}
+fn runtime_version(v: &Device) -> Option<String> {
+    v.diagnostics.as_ref().and_then(|snapshot| match v.backend {
+        DeviceBackend::Rustdesk => snapshot.rustdesk_version.clone(),
+        DeviceBackend::OneKvm => snapshot.one_kvm_version.clone(),
+    })
+}
 fn integration(v: &Device) -> String {
     if v.role == DeviceRole::Controller {
         if v.client_online {
@@ -59,7 +71,10 @@ fn integration(v: &Device) -> String {
         {
             "ready" => t("已接入", "Integrated"),
             "unavailable" => t("主机暂不可用", "Host unavailable"),
-            _ => t("等待原生客户端就绪", "Awaiting native client readiness"),
+            _ => t(
+                "等待设备或客户端就绪",
+                "Awaiting device or client readiness",
+            ),
         }
     }
 }
@@ -88,6 +103,7 @@ fn matches_filter(v: &Device, query: &str, role_filter: &str) -> bool {
         && (q.is_empty()
             || v.name.to_lowercase().contains(&q)
             || v.id.to_lowercase().contains(&q)
+            || backend(v).to_lowercase().contains(&q)
             || v.capabilities
                 .as_ref()
                 .is_some_and(|c| c.os.to_lowercase().contains(&q)))
@@ -171,6 +187,7 @@ fn application() -> impl IntoView {
     let creating = RwSignal::new(false);
     let new_name = RwSignal::new(String::new());
     let new_role = RwSignal::new(DeviceRole::Controlled);
+    let new_backend = RwSignal::new(DeviceBackend::Rustdesk);
     let ticket = RwSignal::new(None::<Enrollment>);
     let (data, load_error) =
         resource_typed::<Vec<Device>>(Signal::derive(|| API.to_string()), revision, 5000);
@@ -198,6 +215,7 @@ fn application() -> impl IntoView {
             CreateDevice {
                 name: new_name.get_untracked().trim().to_string(),
                 role: new_role.get_untracked(),
+                backend: new_backend.get_untracked(),
             },
             busy,
             error,
@@ -226,7 +244,7 @@ fn application() -> impl IntoView {
         failure(load_error), failure(error),
         IntoRender::into_render(move || creating.get().then(|| h::section().class("xscs-panel").aria_label(t("新建实例", "Create instance")).child((
             h::div().class("xscs-panel-heading").child((h::h2().child(t("新建实例", "Create instance")),
-                h::p().child(t("先选择实例用途。创建后生成实例密码，再到原生客户端完成绑定。", "Choose the instance role. Creation generates a password for enrollment in the native client.")))),
+                h::p().child(t("先选择实例角色和类型。创建后生成实例密码，再到对应客户端或设备完成绑定。", "Choose the instance role and type. Creation generates a password for enrollment in the corresponding client or device.")))),
             h::form().class("xscs-form-grid").on(xcss_web::ev::submit, move |event| { event.prevent_default(); create.run(()); }).child((
                 h::label().class("xscs-field").child((h::span().child(t("实例名称", "Instance name")),
                     h::input().class("xcss-input").name("instance_name").maxlength("32").required(true)
@@ -238,7 +256,13 @@ fn application() -> impl IntoView {
                     .value(Signal::derive(move || if new_role.get() == DeviceRole::Controller { "controller".into() } else { "controlled".into() }))
                     .on_change(Callback::new(move |value: String| new_role.set(if value == "controller" { DeviceRole::Controller } else { DeviceRole::Controlled })))
                     .disabled(Signal::derive(move || busy.get())).build()),
-                h::p().class("xscs-hint").child(t("控制端用于发起连接；被控端用于共享这台主机。角色在创建后保持固定。", "Controllers initiate connections; controlled hosts share their desktop. The role is fixed after creation.")),
+                component_view(&Select, component_props_builder(&Select)
+                    .label(t("实例类型", "Instance type")).compact(false)
+                    .options(Signal::derive(|| vec![SelectOption::new("rustdesk", "RustDesk".into()), SelectOption::new("one_kvm", "One-KVM".into())]))
+                    .value(Signal::derive(move || if new_backend.get() == DeviceBackend::OneKvm { "one_kvm".into() } else { "rustdesk".into() }))
+                    .on_change(Callback::new(move |value: String| new_backend.set(if value == "one_kvm" { DeviceBackend::OneKvm } else { DeviceBackend::Rustdesk })))
+                    .disabled(Signal::derive(move || busy.get())).build()),
+                h::p().class("xscs-hint").child(t("RustDesk 控制端可连接获准的原生主机或 One-KVM。One-KVM 浏览器控制端和 KVM 设备分别选择相应角色；类型与角色创建后固定。", "RustDesk controllers can connect to authorized native hosts or One-KVM. Enroll One-KVM browser controllers and KVM devices with their respective roles; type and role are immutable.")),
                 h::div().class("xcss-actions").child((
                     h::button().class("xcss-button xscs-primary").r#type("submit").disabled(IntoAttributeValue::into_attribute_value(move || busy.get() || !valid_name(&new_name.get())))
                         .child(t("创建实例并生成密码", "Create instance and generate password")),
@@ -322,8 +346,8 @@ fn instances(
             IntoRender::into_render(move || (loaded.get() && filtered.with(Vec::is_empty)).then(|| h::p().class("xscs-empty").child(
                 if devices.with(Vec::is_empty) { t("暂无实例。点击顶部“新建实例”，创建后在原生客户端绑定。", "No instances. Select Create instance above, then enroll in the native client.") }
                 else { t("没有符合搜索或角色筛选的实例。", "No instances match the search and role filter.") }))),
-            h::div().class("xcss-table-scroll").child(h::table().class("xcss-table xscs-instance-table").aria_label(t("RustDesk 实例", "RustDesk instances")).child((
-                h::thead().child(h::tr().child([t("名称", "Name"), t("角色", "Role"), t("管理连接", "Management connection"), t("RustDesk 状态", "RustDesk status"), t("平台", "Platform"), t("最近连接", "Last seen"), t("操作", "Actions")].into_iter().map(|label| h::th().child(label)).collect_view())),
+            h::div().class("xcss-table-scroll").child(h::table().class("xcss-table xscs-instance-table").aria_label(t("远程控制实例", "Remote control instances")).child((
+                h::thead().child(h::tr().child([t("名称", "Name"), t("角色", "Role"), t("类型", "Type"), t("管理连接", "Management connection"), t("引擎状态", "Engine status"), t("平台", "Platform"), t("最近连接", "Last seen"), t("操作", "Actions")].into_iter().map(|label| h::th().child(label)).collect_view())),
                 h::tbody().child(component_view(&For, component_props_builder(&For).each(move || filtered.get()).key(|v: &Device| v.id.clone())
                     .children(move |initial: Device| {
                         let device = cached_device(devices, index, initial);
@@ -367,6 +391,7 @@ fn instance_row(
                 })),
         ),
         h::td().child(IntoRender::into_render(move || device.with(role))),
+        h::td().child(IntoRender::into_render(move || device.with(backend))),
         h::td().child(badge(device)),
         h::td().child(IntoRender::into_render(move || device.with(integration))),
         h::td().child(IntoRender::into_render(move || {
@@ -674,8 +699,9 @@ fn workspace(
                 )),
                 h::dl().child((h::dt().child(t("实例 ID", "Instance ID")), h::dd().child(h::code().child(id)),
                     h::dt().child(t("角色", "Role")), h::dd().child(IntoRender::into_render(move || device.with(role))),
-                    h::dt().child(t("运行方式", "Execution mode")), h::dd().child(t("原生客户端内嵌远程引擎", "Remote engine embedded in the native client")),
-                    h::dt().child(t("RustDesk 版本", "RustDesk version")), h::dd().child(IntoRender::into_render(move || device.with(|v| v.diagnostics.as_ref().and_then(|v| v.rustdesk_version.clone())).unwrap_or("—".into()))))),
+                    h::dt().child(t("运行方式", "Execution mode")), h::dd().child(t("设备或客户端内嵌远程引擎", "Remote engine embedded in the device or client")),
+                    h::dt().child(t("实例类型", "Instance type")), h::dd().child(IntoRender::into_render(move || device.with(backend))),
+                    h::dt().child(t("引擎版本", "Engine version")), h::dd().child(IntoRender::into_render(move || device.with(runtime_version).unwrap_or("—".into()))))),
                 IntoRender::into_render(move || (device.with(|v| v.role) == DeviceRole::Controlled).then(|| h::div().class("xcss-content-stack").child((
                     h::h3().child(t("被控端上报地址", "Reported host addresses")),
                     h::ul().child(IntoRender::into_render(move || device.with(|v| v.addresses.clone()).into_iter().map(|address| {
@@ -700,7 +726,7 @@ fn workspace(
                         t("当前没有可用的绑定密码。请重置实例密码后再绑定。", "There is no usable enrollment password. Reset the instance password before enrolling.")
                     })
                 })),
-                h::ol().class("xscs-step-list").child((h::li().child(t("在对应角色的原生客户端打开实例绑定。", "Open instance enrollment in the native client for this role.")),
+                h::ol().class("xscs-step-list").child((h::li().child(t("在对应原生客户端或 One-KVM 的相应角色界面打开实例绑定。", "Open enrollment for this role in the native client or One-KVM.")),
                     h::li().child(t("填写以下服务器地址和实例密码。", "Enter the server address and instance password below.")),
                     h::li().child(t("绑定完成后，配置控制授权再发起连接。", "After enrollment, configure access before connecting.")))),
                 h::label().class("xscs-field").child((h::span().child(t("服务器地址", "Server address")), h::input().class("xcss-input").attr("readonly", "").value(origin))),
@@ -803,6 +829,7 @@ fn operation_summary(op: &Operation) -> String {
             snapshot
                 .rustdesk_version
                 .as_ref()
+                .or(snapshot.one_kvm_version.as_ref())
                 .map(|v| format!(" · {v}"))
                 .unwrap_or_default()
         ),
@@ -965,6 +992,7 @@ mod tests {
             id: "device-1".into(),
             name: "Office 主机".into(),
             role: DeviceRole::Controlled,
+            backend: DeviceBackend::Rustdesk,
             addresses: vec![],
             registered: true,
             pairing_pending: false,

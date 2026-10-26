@@ -7,6 +7,13 @@ pub enum DeviceRole {
     Controller,
     Controlled,
 }
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DeviceBackend {
+    #[default]
+    Rustdesk,
+    OneKvm,
+}
 #[derive(Clone, Debug, Deserialize)]
 pub struct Address {
     pub host: String,
@@ -18,6 +25,8 @@ pub struct Diagnostics {
     pub execution_mode: String,
     pub integration_state: String,
     pub rustdesk_version: Option<String>,
+    #[serde(default)]
+    pub one_kvm_version: Option<String>,
     #[serde(flatten)]
     pub extensions: serde_json::Map<String, serde_json::Value>,
 }
@@ -30,6 +39,8 @@ pub struct Device {
     pub id: String,
     pub name: String,
     pub role: DeviceRole,
+    #[serde(default)]
+    pub backend: DeviceBackend,
     pub addresses: Vec<Address>,
     pub registered: bool,
     pub pairing_pending: bool,
@@ -117,6 +128,7 @@ impl Operation {
 pub struct CreateDevice {
     pub name: String,
     pub role: DeviceRole,
+    pub backend: DeviceBackend,
 }
 #[derive(Serialize)]
 pub struct RenameDevice {

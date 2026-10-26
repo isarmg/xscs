@@ -1,12 +1,13 @@
 use crate::error::{AppError, AppResult};
 use serde::{Deserialize, Serialize};
-use xscs_protocol::{Capabilities, DiagnosticSnapshot, HostAddress, InstanceRole};
+use xscs_protocol::{Backend, Capabilities, DiagnosticSnapshot, HostAddress, InstanceRole};
 
 #[derive(Debug, Serialize)]
 pub struct DeviceView {
     pub id: String,
     pub name: String,
     pub role: InstanceRole,
+    pub backend: Backend,
     pub addresses: Vec<HostAddress>,
     pub addresses_at_micros: Option<i64>,
     pub registered: bool,
@@ -27,6 +28,8 @@ pub struct DeviceName {
 pub struct CreateDeviceRequest {
     pub name: Option<String>,
     pub role: InstanceRole,
+    #[serde(default)]
+    pub backend: Backend,
 }
 #[derive(Debug, Serialize)]
 pub struct ClientAuthorization {
@@ -66,6 +69,17 @@ mod tests {
         let request: CreateDeviceRequest =
             serde_json::from_value(serde_json::json!({"role":"controlled"})).unwrap();
         assert!(request.name.is_none());
+        assert_eq!(request.backend, Backend::Rustdesk);
+        let kvm: CreateDeviceRequest =
+            serde_json::from_value(serde_json::json!({"role":"controlled","backend":"one_kvm"}))
+                .unwrap();
+        assert_eq!(kvm.backend, Backend::OneKvm);
+        assert!(
+            serde_json::from_value::<CreateDeviceRequest>(
+                serde_json::json!({"role":"controlled","backend":"unknown"}),
+            )
+            .is_err()
+        );
         assert!(serde_json::from_value::<CreateDeviceRequest>(serde_json::json!({})).is_err());
         assert!(
             serde_json::from_value::<CreateDeviceRequest>(serde_json::json!({"other": true}))

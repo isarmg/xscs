@@ -145,7 +145,7 @@ async fn exact_current_schema_is_durable_and_self_identifying() {
         (
             1,
             database_schema::APPLICATION.to_string(),
-            "v3".to_string(),
+            "v4".to_string(),
             database_schema::SCHEMA_REVISION,
             database_schema::SCHEMA_SHA256.to_string(),
         )
@@ -219,7 +219,7 @@ async fn empty_unknown_schema_noncurrent_version_and_drift_are_read_only_rejecti
         drop(pool);
         let connection = mutate_while_holding_connection(
             &wrong_version,
-            "UPDATE product_metadata SET application_version='0.0.0'",
+            "UPDATE product_metadata SET application_version='v3',schema_revision=3",
         )
         .await;
         let before = stable_directory_snapshot(directory.path());

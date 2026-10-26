@@ -15,23 +15,25 @@ fn fields(v: &Value, keys: &[&str], test: fn(&Value) -> bool) -> bool {
     v.is_object() && keys.iter().all(|k| v.get(k).is_some_and(test))
 }
 pub fn diagnostics(v: &Value) -> bool {
+    let version = match v["backend"].as_str() {
+        Some("rustdesk") if v["one_kvm_version"].is_null() => &v["rustdesk_version"],
+        Some("one_kvm") if v["rustdesk_version"].is_null() => &v["one_kvm_version"],
+        _ => return false,
+    };
     v.is_object()
-        && v["backend"] == "rustdesk"
         && v["execution_mode"] == "embedded"
         && member(
             &v["integration_state"],
             &["awaiting_integration", "ready", "unavailable"],
         )
-        && nullable_string(&v["rustdesk_version"])
-        && (v["integration_state"] != "ready"
-            || v["rustdesk_version"]
-                .as_str()
-                .is_some_and(|v| !v.is_empty()))
-        && (v["integration_state"] != "awaiting_integration" || v["rustdesk_version"].is_null())
+        && nullable_string(version)
+        && (v["integration_state"] != "ready" || version.as_str().is_some_and(|v| !v.is_empty()))
+        && (v["integration_state"] != "awaiting_integration" || version.is_null())
 }
 pub fn device(v: &Value) -> bool {
     fields(v, &["id", "name"], string)
         && member(&v["role"], &["controller", "controlled"])
+        && (v["backend"].is_null() || member(&v["backend"], &["rustdesk", "one_kvm"]))
         && v["addresses"].as_array().is_some_and(|a| {
             a.iter().all(|v| {
                 fields(v, &["host"], string)
@@ -45,11 +47,14 @@ pub fn device(v: &Value) -> bool {
         )
         && number(&v["addresses_at_micros"])
         && number(&v["last_seen_at_micros"])
-        && (v["diagnostics"].is_null() || diagnostics(&v["diagnostics"]))
+        && (v["diagnostics"].is_null()
+            || diagnostics(&v["diagnostics"])
+                && (v["backend"].is_null() || v["diagnostics"]["backend"] == v["backend"]))
         && (v["capabilities"].is_null()
             || fields(&v["capabilities"], &["client_version", "os"], string)
                 && v["capabilities"]["protocol"] == "xscs-management/2"
-                && v["capabilities"]["backend"] == "rustdesk"
+                && member(&v["capabilities"]["backend"], &["rustdesk", "one_kvm"])
+                && (v["backend"].is_null() || v["capabilities"]["backend"] == v["backend"])
                 && v["capabilities"]["execution_mode"] == "embedded"
                 && v["capabilities"]["diagnostics"] == true)
 }
@@ -138,5 +143,22 @@ mod tests {
         assert!(!diagnostics(
             &json!({"backend":"rustdesk","execution_mode":"embedded","integration_state":"ready","rustdesk_version":null})
         ));
+    }
+
+    #[test]
+    fn one_kvm_diagnostics_use_the_kvm_version() {
+        let mut value = json!({"backend":"one_kvm","execution_mode":"embedded","integration_state":"ready","rustdesk_version":null,"one_kvm_version":"0.2.8"});
+        assert!(diagnostics(&value));
+        let mut instance = json!({"id":"kvm","name":"KVM","role":"controlled","backend":"one_kvm","addresses":[],"registered":true,"pairing_pending":false,"revoked":false,"client_online":true,"addresses_at_micros":null,"last_seen_at_micros":null,"diagnostics":value,"capabilities":{"protocol":"xscs-management/2","client_version":"0.2.8","backend":"one_kvm","execution_mode":"embedded","diagnostics":true,"os":"linux_armv7"}});
+        assert!(device(&instance));
+        instance["capabilities"]["os"] = json!("linux_aarch64");
+        assert!(device(&instance));
+        instance["capabilities"]["backend"] = json!("rustdesk");
+        assert!(!device(&instance));
+        value["rustdesk_version"] = json!("not-rustdesk");
+        assert!(!diagnostics(&value));
+        value["rustdesk_version"] = Value::Null;
+        value["one_kvm_version"] = Value::Null;
+        assert!(!diagnostics(&value));
     }
 }

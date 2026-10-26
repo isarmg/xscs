@@ -139,6 +139,7 @@ CREATE TABLE devices (
     device_id TEXT PRIMARY KEY CHECK(length(device_id) = 36),
     name TEXT NOT NULL CHECK(length(trim(name)) BETWEEN 1 AND 32),
     role TEXT NOT NULL CHECK(role IN ('controller','controlled')),
+    backend TEXT NOT NULL DEFAULT 'rustdesk' CHECK(backend IN ('rustdesk','one_kvm')),
     installation_id TEXT UNIQUE CHECK(installation_id IS NULL OR length(installation_id) = 36),
     credential_hash BLOB UNIQUE CHECK(credential_hash IS NULL OR length(credential_hash) = 32),
     enrollment_hash BLOB UNIQUE CHECK(enrollment_hash IS NULL OR length(enrollment_hash) = 32),
@@ -216,6 +217,11 @@ CREATE INDEX audit_logs_created_at_idx ON audit_logs(created_at_micros DESC);
 CREATE TRIGGER devices_role_immutable BEFORE UPDATE OF role ON devices
 WHEN NEW.role != OLD.role BEGIN
     SELECT RAISE(ABORT, 'instance role is immutable');
+END;
+
+CREATE TRIGGER devices_backend_immutable BEFORE UPDATE OF backend ON devices
+WHEN NEW.backend != OLD.backend BEGIN
+    SELECT RAISE(ABORT, 'instance backend is immutable');
 END;
 
 CREATE TRIGGER device_access_roles BEFORE INSERT ON device_access BEGIN

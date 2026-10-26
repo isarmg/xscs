@@ -1,4 +1,4 @@
-//! RustDesk-only management contract. Media and host mutations stay in RustDesk.
+//! Instance management contract. Media and hardware mutations stay in the host.
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
@@ -49,6 +49,8 @@ pub enum Permission {
 #[serde(rename_all = "snake_case")]
 pub enum ClientOs {
     LinuxX86_64,
+    LinuxAarch64,
+    LinuxArmv7,
     WindowsX86_64,
     MacosX86_64,
     MacosAarch64,
@@ -61,10 +63,22 @@ impl ClientOs {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[derive(
+    Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum Backend {
+    #[default]
     Rustdesk,
+    OneKvm,
+}
+impl Backend {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Rustdesk => "rustdesk",
+            Self::OneKvm => "one_kvm",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
@@ -88,6 +102,11 @@ impl Capabilities {
         if self.protocol != PROTOCOL || !self.diagnostics {
             return Err(InvalidTask);
         }
+        if matches!(self.os, ClientOs::LinuxAarch64 | ClientOs::LinuxArmv7)
+            && self.backend != Backend::OneKvm
+        {
+            return Err(InvalidTask);
+        }
         validate_text(&self.client_version, MAX_CLIENT_VERSION_BYTES)
     }
 }
@@ -107,6 +126,8 @@ pub struct DiagnosticSnapshot {
     pub execution_mode: ExecutionMode,
     pub integration_state: IntegrationState,
     pub rustdesk_version: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub one_kvm_version: Option<String>,
 }
 impl DiagnosticSnapshot {
     pub fn awaiting_integration() -> Self {
@@ -115,18 +136,22 @@ impl DiagnosticSnapshot {
             execution_mode: ExecutionMode::Embedded,
             integration_state: IntegrationState::AwaitingIntegration,
             rustdesk_version: None,
+            one_kvm_version: None,
         }
     }
     pub fn validate(&self) -> Result<(), InvalidTask> {
-        if let Some(version) = &self.rustdesk_version {
+        let version = match self.backend {
+            Backend::Rustdesk if self.one_kvm_version.is_none() => &self.rustdesk_version,
+            Backend::OneKvm if self.rustdesk_version.is_none() => &self.one_kvm_version,
+            Backend::Rustdesk | Backend::OneKvm => return Err(InvalidTask),
+        };
+        if let Some(version) = version {
             validate_text(version, 64)?;
         }
-        if self.integration_state == IntegrationState::Ready && self.rustdesk_version.is_none() {
+        if self.integration_state == IntegrationState::Ready && version.is_none() {
             return Err(InvalidTask);
         }
-        if self.integration_state == IntegrationState::AwaitingIntegration
-            && self.rustdesk_version.is_some()
-        {
+        if self.integration_state == IntegrationState::AwaitingIntegration && version.is_some() {
             return Err(InvalidTask);
         }
         Ok(())
@@ -231,7 +256,7 @@ pub enum ClientMessage {
     },
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
-#[error("invalid RustDesk management contract")]
+#[error("invalid instance management contract")]
 pub struct InvalidTask;
 
 impl Task {

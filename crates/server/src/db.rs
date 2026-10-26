@@ -10,7 +10,7 @@ use sqlx::{Sqlite, SqlitePool, Transaction};
 use std::time::{SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
 use xscs_protocol::{
-    AUTHORIZATION_CODE_LENGTH, Binding, Capabilities, DiagnosticSnapshot,
+    AUTHORIZATION_CODE_LENGTH, Backend, Binding, Capabilities, DiagnosticSnapshot,
     is_valid_authorization_code,
 };
 pub const SCHEMA: &str = "xscs";
@@ -25,6 +25,7 @@ pub struct Device {
     pub device_id: String,
     pub name: String,
     pub role: String,
+    pub backend: String,
     pub installation_id: Option<String>,
     pub credential_hash: Option<Vec<u8>>,
     pub enrollment_hash: Option<Vec<u8>>,
@@ -41,12 +42,24 @@ pub struct Device {
     pub updated_at_micros: i64,
 }
 impl Device {
-    pub fn view(&self, now: i64) -> AppResult<DeviceView> {
-        let online = self.revoked_at_micros.is_none()
+    pub fn backend(&self) -> AppResult<Backend> {
+        match self.backend.as_str() {
+            "rustdesk" => Ok(Backend::Rustdesk),
+            "one_kvm" => Ok(Backend::OneKvm),
+            _ => Err(AppError::Internal(anyhow::anyhow!(
+                "invalid stored instance backend"
+            ))),
+        }
+    }
+    pub(crate) fn is_online(&self, now: i64) -> bool {
+        self.revoked_at_micros.is_none()
             && self.session_id.is_some()
             && self
                 .last_seen_at_micros
-                .is_some_and(|seen| now.saturating_sub(seen) < 45_000_000);
+                .is_some_and(|seen| now.saturating_sub(seen) < 45_000_000)
+    }
+    pub fn view(&self, now: i64) -> AppResult<DeviceView> {
+        let backend = self.backend()?;
         for json in [&self.diagnostics_json, &self.capabilities_json]
             .into_iter()
             .flatten()
@@ -64,7 +77,14 @@ impl Device {
             .transpose()
             .map_err(|error| AppError::Internal(error.into()))?;
         if let Some(snapshot) = &diagnostics {
-            crate::operations::validate_diagnostics(snapshot)?;
+            snapshot
+                .validate()
+                .map_err(|error| AppError::Internal(error.into()))?;
+            if snapshot.backend != backend {
+                return Err(AppError::Internal(anyhow::anyhow!(
+                    "stored diagnostics backend does not match instance"
+                )));
+            }
         }
         let capabilities: Option<Capabilities> = self
             .capabilities_json
@@ -76,19 +96,26 @@ impl Device {
             value
                 .validate()
                 .map_err(|error| AppError::Internal(error.into()))?;
+            if value.backend != backend {
+                return Err(AppError::Internal(anyhow::anyhow!(
+                    "stored capabilities backend does not match instance"
+                )));
+            }
         }
+        let role = crate::access::role(self)?;
         Ok(DeviceView {
             id: self.device_id.clone(),
             name: self.name.clone(),
-            role: crate::access::role(self)?,
-            addresses: crate::access::stored_addresses(self)?,
+            role,
+            backend,
+            addresses: crate::access::stored_addresses(self, role)?,
             addresses_at_micros: self.addresses_at_micros,
             registered: self.installation_id.is_some(),
             pairing_pending: self.enrollment_hash.is_some()
                 && self.installation_id.is_none()
                 && self.revoked_at_micros.is_none(),
             revoked: self.revoked_at_micros.is_some(),
-            client_online: online,
+            client_online: self.is_online(now),
             diagnostics,
             capabilities,
             last_seen_at_micros: self.last_seen_at_micros,
@@ -132,6 +159,17 @@ pub async fn create_device(
     role: xscs_protocol::InstanceRole,
     actor: &str,
 ) -> AppResult<EnrollmentTicket> {
+    create_device_with_backend(pool, secrets, name, role, Backend::Rustdesk, actor).await
+}
+
+pub async fn create_device_with_backend(
+    pool: &SqlitePool,
+    secrets: &SecretBox,
+    name: &str,
+    role: xscs_protocol::InstanceRole,
+    backend: Backend,
+    actor: &str,
+) -> AppResult<EnrollmentTicket> {
     validate_instance_name(name)?;
     let id = Uuid::new_v4().to_string();
     let now = now_micros()?;
@@ -144,8 +182,8 @@ pub async fn create_device(
     if count >= 4096 {
         return Err(AppError::Conflict("设备容量已满".into()));
     }
-    sqlx::query("INSERT INTO devices(device_id,name,role,enrollment_hash,authorization_code_enc,created_at_micros,updated_at_micros) VALUES(?,?,?,?,?,?,?)")
-        .bind(&id).bind(name).bind(role.as_str()).bind(token_hash(&token).as_slice()).bind(authorization_code_enc).bind(now).bind(now).execute(&mut *tx).await?;
+    sqlx::query("INSERT INTO devices(device_id,name,role,backend,enrollment_hash,authorization_code_enc,created_at_micros,updated_at_micros) VALUES(?,?,?,?,?,?,?,?)")
+        .bind(&id).bind(name).bind(role.as_str()).bind(backend.as_str()).bind(token_hash(&token).as_slice()).bind(authorization_code_enc).bind(now).bind(now).execute(&mut *tx).await?;
     audit(&mut tx, "device.create", &id, actor, None).await?;
     tx.commit().await?;
     Ok(EnrollmentTicket {
@@ -195,11 +233,8 @@ pub async fn rotate_authorization(
     .rows_affected();
     if changed != 1 {
         tx.rollback().await?;
-        return if get_device(pool, id).await.is_err() {
-            Err(AppError::NotFound("设备不存在".into()))
-        } else {
-            Err(AppError::Conflict("已撤销实例不能更换密码".into()))
-        };
+        get_device(pool, id).await?;
+        return Err(AppError::Conflict("已撤销实例不能更换密码".into()));
     }
     retire_operations_for_invalidation(&mut tx, id, now, "authorization_rotated").await?;
     audit(&mut tx, "device.authorization.rotate", id, actor, None).await?;
@@ -268,9 +303,11 @@ pub async fn resolve_pairing(pool: &SqlitePool, token: &str) -> AppResult<serde_
         .bind(token_hash(token).as_slice()).fetch_optional(pool).await?;
     let id = id.ok_or(AppError::Unauthorized)?;
     let device = get_device(pool, &id).await?;
-    Ok(
-        serde_json::json!({"manager_id": manager_id(pool).await?, "device_id": id, "role": crate::access::role(&device)?}),
-    )
+    let mut result = serde_json::json!({"manager_id": manager_id(pool).await?, "device_id": id, "role": crate::access::role(&device)?});
+    if device.backend()? == Backend::OneKvm {
+        result["backend"] = serde_json::json!(Backend::OneKvm);
+    }
+    Ok(result)
 }
 pub async fn cancel_pairing(pool: &SqlitePool, id: &str, actor: &str) -> AppResult<()> {
     let mut tx = pool.begin_with("BEGIN IMMEDIATE").await?;

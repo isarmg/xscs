@@ -523,34 +523,31 @@ impl OperationManager {
         }
         if let Some(bytes) = &stored.result_payload {
             let prior: Report = serde_json::from_slice(bytes).map_err(internal)?;
-            let observed: Option<String> = sqlx::query_scalar(
-                "SELECT report_json FROM client_observations WHERE operation_id=?",
-            )
-            .bind(&stored.operation.operation_id)
-            .fetch_optional(&mut *tx)
-            .await?;
-            let observed_matches = observed
-                .as_deref()
-                .and_then(|text| serde_json::from_str::<Report>(text).ok())
-                .as_ref()
-                == Some(&report);
-            if prior != report && !observed_matches {
+            if prior != report {
+                let observed: Option<String> = sqlx::query_scalar(
+                    "SELECT report_json FROM client_observations WHERE operation_id=?",
+                )
+                .bind(&stored.operation.operation_id)
+                .fetch_optional(&mut *tx)
+                .await?;
                 let previous_observation = observed
                     .as_deref()
                     .map(serde_json::from_str::<Report>)
                     .transpose()
                     .map_err(internal)?;
-                if stored.operation.state == OperationState::Resolved
-                    && matches!(prior, Report::Unknown { .. })
-                    && previous_observation
-                        .as_ref()
-                        .is_none_or(|previous| matches!(previous, Report::Unknown { .. }))
-                {
-                    // Preserve the human final outcome; a late inspection only supplies evidence.
-                    sqlx::query("INSERT INTO client_observations(operation_id,report_json,observed_at_micros) VALUES(?,?,?) ON CONFLICT(operation_id) DO UPDATE SET report_json=excluded.report_json,observed_at_micros=excluded.observed_at_micros")
-                        .bind(&stored.operation.operation_id).bind(serde_json::to_string(&report).map_err(internal)?).bind(db::now_micros()?).execute(&mut *tx).await?;
-                } else {
-                    return Err(AppError::Conflict("最终结果不可改写".into()));
+                if previous_observation.as_ref() != Some(&report) {
+                    if stored.operation.state == OperationState::Resolved
+                        && matches!(prior, Report::Unknown { .. })
+                        && previous_observation
+                            .as_ref()
+                            .is_none_or(|previous| matches!(previous, Report::Unknown { .. }))
+                    {
+                        // Preserve the human final outcome; a late inspection only supplies evidence.
+                        sqlx::query("INSERT INTO client_observations(operation_id,report_json,observed_at_micros) VALUES(?,?,?) ON CONFLICT(operation_id) DO UPDATE SET report_json=excluded.report_json,observed_at_micros=excluded.observed_at_micros")
+                            .bind(&stored.operation.operation_id).bind(serde_json::to_string(&report).map_err(internal)?).bind(db::now_micros()?).execute(&mut *tx).await?;
+                    } else {
+                        return Err(AppError::Conflict("最终结果不可改写".into()));
+                    }
                 }
             }
         } else {
@@ -671,7 +668,7 @@ impl OperationManager {
         };
         if let Err(error) = check_history_capacity(&mut tx, &value, self.history_capacity).await {
             if matches!(error, AppError::HistoryCapacity) {
-                tracing::warn!(event = "xscs.instance.task_capacity_exhausted", instance_id = %id, instance_type = "rustdesk", error_code = "history_capacity_exhausted", "Task not accepted: history capacity exhausted");
+                tracing::warn!(event = "xscs.instance.task_capacity_exhausted", instance_id = %id, instance_type = capabilities.backend.as_str(), error_code = "history_capacity_exhausted", "Task not accepted: history capacity exhausted");
             }
             return Err(error);
         }
@@ -1304,6 +1301,75 @@ mod capacity_tests {
         let mut manager = OperationManager::new(pool, SecretBox::new("test", [7; 32]).unwrap());
         manager.history_capacity.free_floor = 0;
         (directory, manager, first, second)
+    }
+
+    #[tokio::test]
+    async fn replayed_final_result_reads_observation_only_when_results_differ() {
+        let (_directory, manager, device, _) = fixture().await;
+        sqlx::query("UPDATE devices SET session_id='session' WHERE device_id=?")
+            .bind(&device)
+            .execute(&manager.pool)
+            .await
+            .unwrap();
+        let operation = manager
+            .enqueue(
+                "admin",
+                &device,
+                "replayed-result",
+                Command::ReadDiagnostics {},
+            )
+            .await
+            .unwrap();
+        let claimed = manager.next(&device, "session").await.unwrap().unwrap();
+        let report = Report::DiagnosticsRead {
+            snapshot: DiagnosticSnapshot::awaiting_integration(),
+        };
+        manager
+            .complete(&claimed, "session", report.clone())
+            .await
+            .unwrap();
+        let stored = manager
+            .store
+            .get(&operation.operation_id)
+            .await
+            .unwrap()
+            .unwrap();
+        manager
+            .accept_replayed_result(&stored, "session", report.clone())
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO client_observations(operation_id,report_json,observed_at_micros) VALUES(?,?,?)")
+            .bind(&operation.operation_id)
+            .bind("{}")
+            .bind(db::now_micros().unwrap())
+            .execute(&manager.pool)
+            .await
+            .unwrap();
+
+        manager
+            .accept_replayed_result(&stored, "session", report)
+            .await
+            .unwrap();
+        let result = manager
+            .accept_replayed_result(
+                &stored,
+                "session",
+                Report::Rejected {
+                    reason: xscs_protocol::Rejection::RustdeskUnavailable,
+                },
+            )
+            .await;
+        assert!(matches!(result, Err(AppError::Internal(_))));
+        assert_eq!(
+            manager
+                .store
+                .get(&operation.operation_id)
+                .await
+                .unwrap()
+                .unwrap()
+                .result_payload,
+            stored.result_payload
+        );
     }
 
     #[tokio::test]

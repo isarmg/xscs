@@ -3,6 +3,8 @@ use xscs_protocol::*;
 fn mobile_platforms_are_controllers_and_desktop_platforms_support_both_roles() {
     for (os, mobile) in [
         (ClientOs::LinuxX86_64, false),
+        (ClientOs::LinuxAarch64, false),
+        (ClientOs::LinuxArmv7, false),
         (ClientOs::WindowsX86_64, false),
         (ClientOs::MacosAarch64, false),
         (ClientOs::IosAarch64, true),
@@ -53,4 +55,40 @@ fn readiness_requires_observed_native_version() {
     assert!(snapshot.validate().is_ok());
     snapshot.rustdesk_version = Some("version\nforged-log".into());
     assert!(snapshot.validate().is_err());
+}
+
+#[test]
+fn one_kvm_reports_its_own_version_and_preserves_rustdesk_wire_shape() {
+    for os in [ClientOs::LinuxAarch64, ClientOs::LinuxArmv7] {
+        let mut capabilities = Capabilities {
+            protocol: PROTOCOL.into(),
+            client_version: "0.2.8-custom".into(),
+            os,
+            backend: Backend::OneKvm,
+            execution_mode: ExecutionMode::Embedded,
+            diagnostics: true,
+        };
+        assert!(capabilities.validate().is_ok());
+        capabilities.backend = Backend::Rustdesk;
+        assert!(capabilities.validate().is_err());
+    }
+    let native = serde_json::to_value(DiagnosticSnapshot::awaiting_integration()).unwrap();
+    assert!(native.get("one_kvm_version").is_none());
+    let mut kvm = DiagnosticSnapshot {
+        backend: Backend::OneKvm,
+        execution_mode: ExecutionMode::Embedded,
+        integration_state: IntegrationState::Ready,
+        rustdesk_version: None,
+        one_kvm_version: Some("0.2.8-custom".into()),
+    };
+    assert!(kvm.validate().is_ok());
+    let encoded = serde_json::to_value(&kvm).unwrap();
+    assert_eq!(encoded["backend"], "one_kvm");
+    assert_eq!(encoded["one_kvm_version"], "0.2.8-custom");
+    assert!(encoded["rustdesk_version"].is_null());
+    kvm.rustdesk_version = Some("pretend-rustdesk".into());
+    assert!(kvm.validate().is_err());
+    kvm.rustdesk_version = None;
+    kvm.one_kvm_version = None;
+    assert!(kvm.validate().is_err());
 }

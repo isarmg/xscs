@@ -1,6 +1,6 @@
 # 实例、授权与地址合同
 
-管理员创建实例时必选 `role: controller | controlled`，角色创建后不可变。控制端与被控端各绑定一个同角色实例；安装身份在同一服务端唯一，不能同时绑定两个实例。授权默认拒绝。
+管理员创建实例时必选 `role: controller | controlled`，`backend: rustdesk | one_kvm` 默认 rustdesk；角色和 backend 创建后不可变。RustDesk 原生控制端与 One-KVM 浏览器控制端都可按显式授权关系连接 One-KVM 被控端，授权不按 backend 相等过滤。控制端与被控端各绑定一个同角色实例；安装身份在同一服务端唯一，不能同时绑定两个实例。授权默认拒绝。
 
 硬件、编码器、编码格式、画质、帧率等设置由 RustDesk 主控端选择，并由 RustDesk 与被控端协商支持范围。xscs 只管理身份、绑定、控制关系、连接地址和只读诊断，不保存或下发这些具体设置。
 
@@ -38,7 +38,7 @@ xscc 暴露 `ManagerConnection::access_policy()` watch 接收器。宿主每次�
 
 ## 状态与升级
 
-当前产品 schema revision 3、application_version v3。DDL、生成文件、release identity 和测试夹具同步更新；没有 v1/v2 自动迁移。当前契约不匹配时拒绝升级并保留原环境；需要新结构时，由专用安装流程在新的数据目录初始化，不转换旧状态。设备协议仍为准备分支的 v2，服务端和 xscc 必须配套升级。
+当前开发工作树 schema revision 4、application_version v4。DDL、生成文件、release identity 和测试夹具同步更新；没有自动迁移。运行时对不匹配身份只读拒绝；确切 v3 可通过[显式离线维护命令](one-kvm.md#数据格式与升级)保留原生实例、凭据、授权和任务升级到 v4，未知结构不转换。设备协议仍为准备分支的 v2，服务端和 xscc 必须配套升级。
 
 ## 平台与角色
 

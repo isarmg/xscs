@@ -20,7 +20,7 @@ pub fn role(device: &Device) -> AppResult<InstanceRole> {
         ))),
     }
 }
-pub fn stored_addresses(device: &Device) -> AppResult<Vec<HostAddress>> {
+pub(crate) fn stored_addresses(device: &Device, role: InstanceRole) -> AppResult<Vec<HostAddress>> {
     let addresses = match &device.addresses_json {
         Some(json) if json.len() <= 2048 => {
             serde_json::from_str(json).map_err(|e| AppError::Internal(e.into()))?
@@ -33,7 +33,7 @@ pub fn stored_addresses(device: &Device) -> AppResult<Vec<HostAddress>> {
         None => Vec::new(),
     };
     validate_addresses(&addresses).map_err(|e| AppError::Internal(e.into()))?;
-    if role(device)? == InstanceRole::Controller && !addresses.is_empty() {
+    if role == InstanceRole::Controller && !addresses.is_empty() {
         return Err(AppError::Internal(anyhow::anyhow!(
             "controller has host addresses"
         )));
@@ -195,10 +195,13 @@ pub async fn policy(
         .fetch_optional(&mut *tx)
         .await?
         .ok_or(AppError::Unauthorized)?;
+    let own_credential = own
+        .credential_hash
+        .as_deref()
+        .ok_or(AppError::Unauthorized)?;
     if own.revoked_at_micros.is_some()
         || own.installation_id.is_none()
         || own.installation_id != authenticated.installation_id
-        || own.credential_hash.is_none()
         || own.credential_hash != authenticated.credential_hash
         || session.is_some_and(|s| own.session_id.as_deref() != Some(s))
     {
@@ -228,34 +231,33 @@ pub async fn policy(
         .bind(&own.device_id).bind(&own.device_id).bind(&own.device_id).fetch_all(&mut *tx).await?;
     let now = db::now_micros()?;
     let own_binding = binding_of(&own)?;
+    let own_role = role(&own)?;
     let mut peers = Vec::with_capacity(rows.len());
     for device in rows {
         let peer_binding = binding_of(&device)?;
-        let own_credential = own
-            .credential_hash
-            .as_deref()
-            .ok_or(AppError::Unauthorized)?;
         let peer_credential = device
             .credential_hash
             .as_deref()
             .ok_or(AppError::Unauthorized)?;
-        let session_key = if role(&own)? == InstanceRole::Controller {
+        let session_key = if own_role == InstanceRole::Controller {
             secrets.session_key(&own_binding, &peer_binding, own_credential, peer_credential)?
         } else {
             secrets.session_key(&peer_binding, &own_binding, peer_credential, own_credential)?
         };
-        let view = device.view(now)?;
+        let peer_role = role(&device)?;
+        let addresses = stored_addresses(&device, peer_role)?;
+        let online = device.is_online(now);
         let fresh = device
             .addresses_at_micros
             .is_some_and(|at| now >= at && now - at < 45_000_000);
         peers.push(AccessPeer {
             binding: peer_binding,
             session_key,
-            name: device.name.clone(),
-            role: view.role,
-            online: view.client_online,
-            addresses: if view.client_online && fresh {
-                view.addresses
+            name: device.name,
+            role: peer_role,
+            online,
+            addresses: if online && fresh {
+                addresses
             } else {
                 Vec::new()
             },
@@ -263,7 +265,7 @@ pub async fn policy(
     }
     let policy = AccessPolicy {
         binding: own_binding,
-        role: role(&own)?,
+        role: own_role,
         valid_for_ms: ACCESS_LEASE_MS,
         peers,
     };

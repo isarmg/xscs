@@ -1,4 +1,4 @@
-//! RustDesk-only control plane. The management client runs inside RustDesk.
+//! Instance control plane. Management clients run inside RustDesk or One-KVM.
 pub mod access;
 pub mod config;
 mod config_definition;

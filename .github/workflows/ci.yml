@@ -79,6 +79,7 @@ jobs:
           python3 -m py_compile scripts/package-release.py scripts/installed-lifecycle-adapter.py
           bash -n scripts/package-installed-candidate.sh
           python3 -I -B scripts/test-package-boundary.py
+          python3 -I -B scripts/test-migrate-v3-v4.py
           python3 -I -B -m unittest discover -s tools/installer/tests -p test_product_sources.py -v
           cargo test --locked --manifest-path tools/installer/Cargo.toml --target x86_64-unknown-linux-gnu -p xscs-install-support --lib -- --test-threads=2
           python3 -I -B scripts/test-installed-lifecycle-adapter.py

@@ -65,6 +65,113 @@ async fn fixture() -> (tempfile::TempDir, sqlx::SqlitePool) {
 }
 
 #[tokio::test]
+async fn native_and_browser_controllers_share_explicit_kvm_host_authorization() {
+    let (_dir, pool) = fixture().await;
+    let secrets = SecretBox::new("test", [7; 32]).unwrap();
+    let host = db::create_device_with_backend(
+        &pool,
+        &secrets,
+        "KVM",
+        InstanceRole::Controlled,
+        Backend::OneKvm,
+        "admin",
+    )
+    .await
+    .unwrap();
+    assert_eq!(host.device.backend, Backend::OneKvm);
+    assert_eq!(
+        db::resolve_pairing(&pool, &host.token).await.unwrap()["backend"],
+        "one_kvm"
+    );
+    let host_token = db::random_token();
+    db::enroll(
+        &pool,
+        &host.device.id,
+        uuid::Uuid::new_v4(),
+        &host.token,
+        &host_token,
+    )
+    .await
+    .unwrap();
+    let host_device = db::authenticate_device(&pool, &host_token).await.unwrap();
+    let mut controllers = Vec::new();
+    for (backend, name) in [(Backend::Rustdesk, "Native"), (Backend::OneKvm, "Browser")] {
+        let ticket = db::create_device_with_backend(
+            &pool,
+            &secrets,
+            name,
+            InstanceRole::Controller,
+            backend,
+            "admin",
+        )
+        .await
+        .unwrap();
+        let pairing = db::resolve_pairing(&pool, &ticket.token).await.unwrap();
+        assert_eq!(pairing.get("backend").is_some(), backend == Backend::OneKvm);
+        let credential = db::random_token();
+        db::enroll(
+            &pool,
+            &ticket.device.id,
+            uuid::Uuid::new_v4(),
+            &ticket.token,
+            &credential,
+        )
+        .await
+        .unwrap();
+        replace(&pool, &ticket.device.id, &[&host.device.id])
+            .await
+            .unwrap();
+        controllers.push(db::authenticate_device(&pool, &credential).await.unwrap());
+    }
+    let incoming = access::policy(&pool, &secrets, &host_device, None)
+        .await
+        .unwrap();
+    assert_eq!(incoming.peers.len(), 2);
+    for controller in &controllers {
+        let outgoing = access::policy(&pool, &secrets, controller, None)
+            .await
+            .unwrap();
+        assert_eq!(outgoing.peers.len(), 1);
+        assert_eq!(
+            outgoing.peers[0].binding.device_id.to_string(),
+            host.device.id
+        );
+        assert_eq!(
+            outgoing.peers[0].session_key,
+            incoming
+                .peers
+                .iter()
+                .find(|peer| peer.binding.device_id.to_string() == controller.device_id)
+                .unwrap()
+                .session_key,
+        );
+        assert!(
+            serde_json::to_value(&outgoing.peers[0])
+                .unwrap()
+                .get("backend")
+                .is_none()
+        );
+    }
+    assert!(
+        sqlx::query("UPDATE devices SET backend='rustdesk' WHERE device_id=?")
+            .bind(&host.device.id)
+            .execute(&pool)
+            .await
+            .is_err()
+    );
+    db::revoke(&pool, &host.device.id, "admin").await.unwrap();
+    for controller in &controllers {
+        assert!(
+            access::policy(&pool, &secrets, controller, None)
+                .await
+                .unwrap()
+                .peers
+                .is_empty()
+        );
+    }
+}
+
+#[tokio::test]
 async fn directed_permissions_are_one_relation_and_updates_are_atomic() {
     let (_dir, pool) = fixture().await;
     let (controller, _) = create(&pool, InstanceRole::Controller, "Controller", true).await;
