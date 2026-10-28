@@ -52,11 +52,12 @@ impl Device {
         }
     }
     pub(crate) fn is_online(&self, now: i64) -> bool {
-        self.revoked_at_micros.is_none()
-            && self.session_id.is_some()
-            && self
-                .last_seen_at_micros
-                .is_some_and(|seen| now.saturating_sub(seen) < 45_000_000)
+        session_is_online(
+            self.revoked_at_micros,
+            self.session_id.as_deref(),
+            self.last_seen_at_micros,
+            now,
+        )
     }
     pub fn view(&self, now: i64) -> AppResult<DeviceView> {
         let backend = self.backend()?;
@@ -108,7 +109,7 @@ impl Device {
             name: self.name.clone(),
             role,
             backend,
-            addresses: crate::access::stored_addresses(self, role)?,
+            addresses: crate::access::stored_addresses(self.addresses_json.as_deref(), role)?,
             addresses_at_micros: self.addresses_at_micros,
             registered: self.installation_id.is_some(),
             pairing_pending: self.enrollment_hash.is_some()
@@ -122,6 +123,40 @@ impl Device {
         })
     }
 }
+pub(crate) fn session_is_online(
+    revoked_at_micros: Option<i64>,
+    session: Option<&str>,
+    last_seen_at_micros: Option<i64>,
+    now: i64,
+) -> bool {
+    revoked_at_micros.is_none()
+        && session.is_some()
+        && last_seen_at_micros.is_some_and(|seen| now.saturating_sub(seen) < 45_000_000)
+}
+
+pub(crate) async fn current_session(
+    pool: &SqlitePool,
+    binding: &Binding,
+    session: &str,
+) -> AppResult<bool> {
+    Ok(sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM devices WHERE device_id=? AND installation_id=? AND session_id=? AND revoked_at_micros IS NULL)",
+    ).bind(binding.device_id.to_string()).bind(binding.installation_id.to_string())
+        .bind(session).fetch_one(pool).await?)
+}
+
+/// One conditional write checks the current session and records its liveness.
+pub(crate) async fn touch_session(
+    pool: &SqlitePool,
+    binding: &Binding,
+    session: &str,
+) -> AppResult<bool> {
+    Ok(sqlx::query(
+        "UPDATE devices SET last_seen_at_micros=? WHERE device_id=? AND installation_id=? AND session_id=? AND revoked_at_micros IS NULL",
+    ).bind(now_micros()?).bind(binding.device_id.to_string()).bind(binding.installation_id.to_string())
+        .bind(session).execute(pool).await?.rows_affected() == 1)
+}
+
 #[derive(Serialize)]
 pub struct EnrollmentTicket {
     pub device: DeviceView,
@@ -433,12 +468,15 @@ pub async fn unbind(pool: &SqlitePool, device: &Device) -> AppResult<()> {
 pub async fn binding(pool: &SqlitePool, device: &Device) -> AppResult<Binding> {
     Ok(Binding {
         manager_id: manager_id(pool).await?,
-        device_id: Uuid::parse_str(&device.device_id).map_err(|_| AppError::Unauthorized)?,
-        installation_id: device
-            .installation_id
-            .as_ref()
-            .and_then(|id| Uuid::parse_str(id).ok())
-            .ok_or_else(|| AppError::Conflict("设备尚未注册".into()))?,
+        device_id: Uuid::parse_str(&device.device_id)
+            .map_err(|error| AppError::Internal(error.into()))?,
+        installation_id: Uuid::parse_str(
+            device
+                .installation_id
+                .as_deref()
+                .ok_or_else(|| AppError::Conflict("设备尚未注册".into()))?,
+        )
+        .map_err(|error| AppError::Internal(error.into()))?,
     })
 }
 pub fn random_token() -> String {
@@ -446,7 +484,7 @@ pub fn random_token() -> String {
     rand::rngs::SysRng
         .try_fill_bytes(&mut bytes)
         .expect("operating system entropy is available");
-    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+    hex::encode(bytes)
 }
 pub fn random_authorization_code() -> String {
     const ALPHABET: &[u8; 36] = b"abcdefghijklmnopqrstuvwxyz0123456789";

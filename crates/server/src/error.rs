@@ -116,7 +116,7 @@ impl IntoResponse for AppError {
             Self::Crypto | Self::Internal(_) => "internal error".to_string(),
         };
         if status.is_server_error() {
-            tracing::error!(error = %self, "Management request failed");
+            tracing::error!(error = ?self, "Management request failed");
         }
         let envelope = ErrorEnvelope::with_code(code, message).retryable(retryable);
         let mut response = (status, Json(envelope)).into_response();

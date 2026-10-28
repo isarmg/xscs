@@ -21,7 +21,7 @@ try {
       await page.addInitScript(() => localStorage.removeItem('sarmg:theme'));
       const diagnostics = {backend: 'rustdesk', execution_mode: 'embedded', integration_state: 'awaiting_integration', rustdesk_version: null};
       const device = {
-        id: randomUUID(), name: '原生 RustDesk 主机', role: 'controlled',
+        id: randomUUID(), name: '原生 RustDesk 主机', role: 'controlled', backend: 'rustdesk',
         addresses: [{host: 'host.example.com', port: 21118}], addresses_at_micros: Date.now() * 1000,
         registered: true, pairing_pending: false, revoked: false, client_online: true, diagnostics,
         capabilities: {protocol: 'xscs-management/2', client_version: '2.0.0-dev', os: 'windows_x86_64', backend: 'rustdesk', execution_mode: 'embedded', diagnostics: true},
@@ -43,8 +43,8 @@ try {
           if (request.method() === 'POST') {
             createdCount++;
             assert.equal(request.headers()['x-csrf-token'], session.csrf_token);
-            assert.deepEqual(request.postDataJSON(), {name: '新增控制端', role: 'controller'});
-            const created = {...device, id: randomUUID(), name: request.postDataJSON().name, role: request.postDataJSON().role, addresses: [], addresses_at_micros: null, registered: false, client_online: false, pairing_pending: true, capabilities: null, diagnostics: null};
+            assert.deepEqual(request.postDataJSON(), {name: '新增控制端', role: 'controller', backend: 'rustdesk'});
+            const created = {...device, id: randomUUID(), name: request.postDataJSON().name, role: request.postDataJSON().role, backend: request.postDataJSON().backend, addresses: [], addresses_at_micros: null, registered: false, client_online: false, pairing_pending: true, capabilities: null, diagnostics: null};
             devices.push(created);
             authorizations.set(created.id, 'b'.repeat(36));
             const reply = {status: 201, json: {device: created, manager_id: randomUUID(), token: 'b'.repeat(36)}};
@@ -223,6 +223,8 @@ try {
       await page.goto(server.resolvedUrls.local[0]);
       await wasm;
       await expect(page.locator('html')).toHaveAttribute('data-xcss-runtime', 'xcss-web', {timeout: 30_000});
+      // Geometry screenshots exercise the final application font metrics; startup itself is independent.
+      await expect(page.locator('html')).toHaveAttribute('data-xcss-fonts', 'ready', {timeout: 30_000});
       await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
       await page.emulateMedia({colorScheme: 'dark'});
       await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
@@ -324,7 +326,7 @@ try {
       await expect(peerCheckbox()).toBeEnabled();
       await peerCheckbox().press('Space'); await expect(peerCheckbox()).not.toBeChecked();
       await page.emulateMedia({forcedColors:'none'});
-      await expect(page.getByText('被控端 · 等待原生客户端就绪', {exact: true})).toBeVisible();
+      await expect(page.getByText('被控端 · 等待设备或客户端就绪', {exact: true})).toBeVisible();
       await expect(page.getByText('host.example.com:21118', {exact: true})).toBeVisible();
       await peerCheckbox().check();
       await saveAccess().click();

@@ -465,3 +465,25 @@ async fn pair_grants_match_both_ends_and_rotate_with_credentials() {
         1
     );
 }
+
+#[tokio::test]
+async fn stored_binding_corruption_is_not_reported_as_an_unregistered_device() {
+    let (_directory, pool) = fixture().await;
+    let (id, _) = create(&pool, InstanceRole::Controlled, "Binding", false).await;
+    let unregistered = db::get_device(&pool, &id).await.unwrap();
+    assert!(matches!(
+        db::binding(&pool, &unregistered).await,
+        Err(xscs::AppError::Conflict(_))
+    ));
+    sqlx::query("UPDATE devices SET installation_id=? WHERE device_id=?")
+        .bind("g".repeat(36))
+        .bind(&id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let corrupt = db::get_device(&pool, &id).await.unwrap();
+    assert!(matches!(
+        db::binding(&pool, &corrupt).await,
+        Err(xscs::AppError::Internal(_))
+    ));
+}

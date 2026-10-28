@@ -698,42 +698,60 @@ async fn client_connect(
             let session = uuid::Uuid::new_v4().to_string();
             tracing::info!(event = "xscs.instance.connected", instance_id = %binding.device_id, instance_type = backend.as_str(), task_id = session.as_str(), request_id = request_id.as_str());
             if let Err(error) = serve_client(&state, socket, &binding, &authenticated_credential_hash, &session, &mut pending).await {
-                tracing::warn!(event = "xscs.instance.connection_failed", instance_id = %binding.device_id, instance_type = backend.as_str(), task_id = session.as_str(), request_id = request_id.as_str(), error = %error, "client session ended with an error");
+                tracing::warn!(event = "xscs.instance.connection_failed", instance_id = %binding.device_id, instance_type = backend.as_str(), task_id = session.as_str(), request_id = request_id.as_str(), error = ?error, "client session ended with an error");
             }
-            if let Some(operation) = pending {
-                let _ = state.operations.disconnected(&operation).await;
+            if let Some(operation) = pending
+                && let Err(error) = state.operations.disconnected(&operation).await {
+                tracing::warn!(event = "xscs.instance.cleanup_failed", phase = "operation_disconnect",
+                    instance_id = %binding.device_id, task_id = session.as_str(),
+                    request_id = request_id.as_str(), error = ?error,
+                    "pending operation cleanup failed");
             }
-            let _ = sqlx::query(
+            if let Err(error) = sqlx::query(
                 "UPDATE devices SET session_id=NULL WHERE device_id=? AND session_id=?",
             )
             .bind(binding.device_id.to_string())
             .bind(&session)
             .execute(&state.pool)
-            .await;
+            .await {
+                tracing::warn!(event = "xscs.instance.cleanup_failed", phase = "session_clear",
+                    instance_id = %binding.device_id, task_id = session.as_str(),
+                    request_id = request_id.as_str(), error = ?error,
+                    "session presence cleanup failed");
+            }
             tracing::info!(event = "xscs.instance.disconnected", instance_id = %binding.device_id, instance_type = backend.as_str(), task_id = session.as_str(), request_id = request_id.as_str());
         }))
 }
 async fn receive(socket: &mut WebSocket) -> AppResult<ClientMessage> {
     let frame = timeout(Duration::from_secs(10), socket.recv())
         .await
-        .map_err(|_| AppError::Unauthorized)?
-        .ok_or(AppError::Unauthorized)?
-        .map_err(|_| AppError::Unauthorized)?;
+        .map_err(|error| {
+            AppError::Internal(anyhow::Error::new(error).context("Client Hello timed out"))
+        })?
+        .ok_or_else(|| AppError::Internal(anyhow::anyhow!("Client socket closed before Hello")))?
+        .map_err(|error| {
+            AppError::Internal(anyhow::Error::new(error).context("Client Hello receive failed"))
+        })?;
     let Message::Text(text) = frame else {
         return Err(AppError::Unauthorized);
     };
     serde_json::from_str(&text).map_err(|_| AppError::BadRequest("Client 消息无效".into()))
 }
 async fn send(socket: &mut WebSocket, message: ManagerMessage) -> AppResult<()> {
-    let text = serde_json::to_string(&message)
-        .map_err(|_| AppError::BadRequest("Client 指令无效".into()))?;
+    let text = serde_json::to_string(&message).map_err(|error| {
+        AppError::Internal(
+            anyhow::Error::new(error).context("Manager message serialization failed"),
+        )
+    })?;
     timeout(
         Duration::from_secs(10),
         socket.send(Message::Text(text.into())),
     )
     .await
-    .map_err(|_| AppError::Unauthorized)?
-    .map_err(|_| AppError::Unauthorized)
+    .map_err(|error| {
+        AppError::Internal(anyhow::Error::new(error).context("Client send timed out"))
+    })?
+    .map_err(|error| AppError::Internal(anyhow::Error::new(error).context("Client send failed")))
 }
 fn result_completes_pending(
     pending_operation: Option<&str>,
@@ -767,10 +785,8 @@ async fn serve_client(
     if capabilities.backend != policy_identity.backend()? {
         return Err(AppError::Unauthorized);
     }
-    if !capabilities
-        .os
-        .supports_role(crate::access::role(&policy_identity)?)
-    {
+    let instance_role = crate::access::role(&policy_identity)?;
+    if !capabilities.os.supports_role(instance_role) {
         return Err(AppError::Unauthorized);
     }
     let changed=sqlx::query("UPDATE devices SET session_id=?,last_seen_at_micros=?,capabilities_json=?,addresses_json=NULL,addresses_at_micros=NULL WHERE device_id=? AND installation_id=? AND revoked_at_micros IS NULL AND credential_hash=?")
@@ -827,26 +843,39 @@ async fn serve_client(
     loop {
         tokio::select! {
             message=socket.recv()=>{
-                let frame=message.ok_or(AppError::Unauthorized)?.map_err(|_|AppError::Unauthorized)?;
-                let current=db::get_device(&state.pool,&id).await?;
-                if current.revoked_at_micros.is_some()||current.session_id.as_deref()!=Some(session){let _=send(&mut socket,ManagerMessage::Revoked{}).await;return Err(AppError::Unauthorized);}
+                let frame = message.ok_or_else(|| AppError::Internal(anyhow::anyhow!("Client socket closed")))?
+                    .map_err(|error| AppError::Internal(anyhow::Error::new(error).context("Client receive failed")))?;
+                let message = match &frame {
+                    Message::Text(text) => Some(serde_json::from_str::<ClientMessage>(text)
+                        .map_err(|_| AppError::BadRequest("Client 消息无效".into()))?),
+                    _ => None,
+                };
+                if !matches!(&message, Some(ClientMessage::Heartbeat { .. }))
+                    && !db::touch_session(&state.pool, binding, session).await? {
+                    let _ = send(&mut socket, ManagerMessage::Revoked {}).await;
+                    return Err(AppError::Unauthorized);
+                }
                 last_seen=Instant::now();
-                sqlx::query("UPDATE devices SET last_seen_at_micros=? WHERE device_id=? AND session_id=?").bind(db::now_micros()?).bind(&id).bind(session).execute(&state.pool).await?;
                 match frame{
-                    Message::Ping(bytes)=>{timeout(Duration::from_secs(10),socket.send(Message::Pong(bytes))).await.map_err(|_|AppError::Unauthorized)?.map_err(|_|AppError::Unauthorized)?;}
+                    Message::Ping(bytes)=>{
+                        timeout(Duration::from_secs(10),socket.send(Message::Pong(bytes))).await
+                            .map_err(|error| AppError::Internal(anyhow::Error::new(error).context("Client pong timed out")))?
+                            .map_err(|error| AppError::Internal(anyhow::Error::new(error).context("Client pong failed")))?;
+                    }
                     Message::Pong(_)=>{}
-                    Message::Text(text)=>{
-                        let message:ClientMessage=serde_json::from_str(&text).map_err(|_|AppError::BadRequest("Client 消息无效".into()))?;
-                        match message{
+                    Message::Text(_)=>{
+                        match message.expect("invariant: text frame was parsed above"){
                             ClientMessage::Heartbeat{diagnostics,addresses}=>{
-                                if let Some(snapshot)=&diagnostics{
-                                    crate::operations::validate_diagnostics(snapshot)?;
-                                    if snapshot.backend != capabilities.backend { return Err(AppError::BadRequest("Client 诊断类型与实例不匹配".into())); }
+                                match crate::access::record_heartbeat(
+                                    &state.pool, binding, session, instance_role,
+                                    capabilities.backend, diagnostics.as_ref(), &addresses,
+                                ).await {
+                                    Err(AppError::Unauthorized) => {
+                                        let _ = send(&mut socket, ManagerMessage::Revoked {}).await;
+                                        return Err(AppError::Unauthorized);
+                                    }
+                                    result => result?,
                                 }
-                                crate::access::report_addresses(&state.pool,binding,session,&addresses).await?;
-                                sqlx::query("UPDATE devices SET health_at_micros=?,diagnostics_json=COALESCE(?,diagnostics_json) WHERE device_id=? AND session_id=? AND revoked_at_micros IS NULL")
-                                    .bind(db::now_micros()?).bind(diagnostics.as_ref().map(serde_json::to_string).transpose().map_err(|_|AppError::Unauthorized)?)
-                                    .bind(&id).bind(session).execute(&state.pool).await?;
                             }
                             ClientMessage::Progress{operation_id,fingerprint}=>{
                                 let operation=state.operations.receipt_operation(&operation_id,binding).await?;
@@ -880,8 +909,10 @@ async fn serve_client(
             }
             _=async {tokio::select!{_=poll.tick()=>{},_=wake.notified()=>{}}}=>{
                 if last_seen.elapsed()>Duration::from_secs(45)||(pending.is_some()&&dispatched.elapsed()>Duration::from_secs(110)){return Err(AppError::Unauthorized);}
-                let current=db::get_device(&state.pool,&id).await?;
-                if current.revoked_at_micros.is_some()||current.session_id.as_deref()!=Some(session){let _=send(&mut socket,ManagerMessage::Revoked{}).await;return Err(AppError::Unauthorized);}
+                if !db::current_session(&state.pool, binding, session).await? {
+                    let _ = send(&mut socket, ManagerMessage::Revoked {}).await;
+                    return Err(AppError::Unauthorized);
+                }
                 send(&mut socket,ManagerMessage::AccessPolicy{policy:Box::new(crate::access::policy(&state.pool, &state.secrets,&policy_identity,Some(session)).await?)}).await?;
                 if pending.is_none(){
                     let (operation,mode)=if let Some(unknown)=state.operations.uncertain(&id, &binding.installation_id).await?{
@@ -1365,6 +1396,10 @@ mod tests {
                 host: "host.example.com".into(),
                 port: 21118,
             }];
+            sqlx::query("CREATE TEMP TABLE heartbeat_updates(device_id TEXT NOT NULL)")
+                .execute(&pool).await.unwrap();
+            sqlx::query("CREATE TEMP TRIGGER record_heartbeat_update AFTER UPDATE ON devices BEGIN INSERT INTO heartbeat_updates(device_id) VALUES(NEW.device_id); END")
+                .execute(&pool).await.unwrap();
             sockets[1]
                 .send(Frame::Text(
                     serde_json::to_string(&ClientMessage::Heartbeat {
@@ -1376,6 +1411,18 @@ mod tests {
                 ))
                 .await
                 .unwrap();
+            loop {
+                let heartbeat = db::get_device(&pool, &host.device.id).await.unwrap();
+                if heartbeat.addresses_json.is_some() {
+                    assert_eq!(heartbeat.last_seen_at_micros, heartbeat.health_at_micros);
+                    assert_eq!(heartbeat.last_seen_at_micros, heartbeat.addresses_at_micros);
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+            let heartbeat_updates: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM heartbeat_updates WHERE device_id=?")
+                .bind(&host.device.id).fetch_one(&pool).await.unwrap();
+            assert_eq!(heartbeat_updates, 1, "one heartbeat is one atomic device update");
             sqlx::query("UPDATE devices SET diagnostics_json=?,capabilities_json='invalid' WHERE device_id=?")
                 .bind(r#"{"backend":"one_kvm","execution_mode":"embedded","integration_state":"ready","rustdesk_version":null,"one_kvm_version":null}"#)
                 .bind(&host.device.id)

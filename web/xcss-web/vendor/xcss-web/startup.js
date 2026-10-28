@@ -9,7 +9,7 @@ export function startApplication(initialize) {
   let settled = false;
   const timeout = setTimeout(() => fail("timeout"), 30_000);
   const ready = () => {
-    if (html.dataset.xcssRuntime !== "xcss-web" || html.dataset.xcssFonts !== "ready") {
+    if (html.dataset.xcssRuntime !== "xcss-web") {
       fail("runtime");
       return;
     }
@@ -34,6 +34,7 @@ export function startApplication(initialize) {
     html.dataset.xcssStartup = "failed";
     html.dataset.xcssFonts = "failed";
     delete html.dataset.xcssRuntime;
+    document.dispatchEvent(new Event("xcss-startup-failed"));
     const language = new URL(window.location.href).searchParams.get("lang") ?? html.lang;
     const chinese = language.toLowerCase().startsWith("zh");
     const panel = document.createElement("section");

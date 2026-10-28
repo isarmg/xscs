@@ -1,6 +1,6 @@
 import { chromium, firefox } from "@playwright/test";
 import { preview } from "../../tools/web-build/test-preview.mjs";
-import { verifyStartupFailures, verifyStartupTimeout } from "../xcss-web/vendor/xcss-web/tests/startup-failures.mjs";
+import { verifyStartupFailures, verifyStartupTimeout, verifyOptionalFonts } from "../xcss-web/vendor/xcss-web/tests/startup-failures.mjs";
 
 const server = await preview({ preview: { host: "127.0.0.1", port: 0, strictPort: true } });
 try {
@@ -14,6 +14,7 @@ try {
       }));
       await verifyStartupFailures(browser, url, prepare);
       await verifyStartupTimeout(browser, url, prepare);
+      await verifyOptionalFonts(browser, url, prepare);
     } finally { await browser.close(); }
   }
 } finally { await server.close(); }

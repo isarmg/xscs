@@ -4,6 +4,7 @@ use crate::{
     db,
     error::{AppError, AppResult},
 };
+use anyhow::Context;
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use chrono::{DateTime, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
@@ -28,6 +29,86 @@ use xscs_protocol::{
 };
 
 const RESTART_EXECUTION_WINDOW_MICROS: i64 = 15 * 60 * 1_000_000;
+
+/// A request owns its deadline callback until cleanup has finished. Cancellation
+/// at any await closes the connection instead of lending a stale callback to
+/// another request; completed work can retain SQLite's connection/statement cache.
+struct DeadlineConnection {
+    connection: sqlx::pool::PoolConnection<sqlx::Sqlite>,
+    reusable: bool,
+}
+impl DeadlineConnection {
+    async fn acquire(pool: &sqlx::SqlitePool) -> AppResult<Self> {
+        let connection = tokio::time::timeout(Duration::from_secs(2), pool.acquire())
+            .await
+            .map_err(|_| AppError::TooManyRequests { retry_after: 1 })??;
+        let mut guarded = Self {
+            connection,
+            reusable: false,
+        };
+        let deadline = std::time::Instant::now() + Duration::from_secs(3);
+        guarded
+            .connection
+            .lock_handle()
+            .await?
+            .set_progress_handler(1_000, move || std::time::Instant::now() < deadline);
+        Ok(guarded)
+    }
+
+    async fn finish(mut self) -> Result<(), sqlx::Error> {
+        self.connection
+            .lock_handle()
+            .await?
+            .remove_progress_handler();
+        // Drain the worker queue, including a dropped transaction's rollback,
+        // before the request releases admission or the connection becomes reusable.
+        self.connection.ping().await?;
+        self.reusable = true;
+        Ok(())
+    }
+}
+impl Drop for DeadlineConnection {
+    fn drop(&mut self) {
+        if !self.reusable {
+            self.connection.close_on_drop();
+        }
+    }
+}
+
+/// Retry only typed SQLite BUSY/LOCKED errors. The owned foundation currently
+/// flattens some storage errors into strings; those are deliberately not guessed
+/// from their text and remain fatal, with their diagnostic context preserved.
+fn maintenance_retry_delay(error: &anyhow::Error, completed_retries: usize) -> Option<Duration> {
+    use sqlx::error::DatabaseError;
+
+    let locked = error.chain().any(|cause| {
+        // SQLx exposes its database source through a boxed DatabaseError; use
+        // its public typed accessor instead of assuming std::error::source
+        // erases that wrapper all the way to SqliteError.
+        cause
+            .downcast_ref::<sqlx::Error>()
+            .and_then(sqlx::Error::as_database_error)
+            .and_then(|error| error.try_downcast_ref::<sqlx::sqlite::SqliteError>())
+            .or_else(|| cause.downcast_ref::<sqlx::sqlite::SqliteError>())
+            .and_then(|error| error.code())
+            .and_then(|code| code.parse::<u32>().ok())
+            .is_some_and(|code| matches!(code & 0xff, 5 | 6))
+    });
+    if !locked {
+        return None;
+    }
+    [50, 100, 200]
+        .get(completed_retries)
+        .map(|millis| Duration::from_millis(*millis))
+}
+
+async fn maintenance_wait(shutdown: &mut watch::Receiver<bool>, delay: Duration) -> bool {
+    tokio::select! {
+        biased;
+        _ = xcss::server_runtime::wait_for_shutdown(shutdown) => true,
+        _ = tokio::time::sleep(delay) => false,
+    }
+}
 
 #[derive(Clone)]
 pub struct OperationManager {
@@ -566,21 +647,14 @@ impl OperationManager {
         command: Command,
     ) -> AppResult<OperationView> {
         validate_idempotency_key(key)?;
-        let mut connection = tokio::time::timeout(Duration::from_secs(2), self.pool.acquire())
-            .await
-            .map_err(|_| AppError::TooManyRequests { retry_after: 1 })??;
-        connection.close_on_drop();
-        let deadline = std::time::Instant::now() + Duration::from_secs(3);
-        connection
-            .lock_handle()
-            .await?
-            .set_progress_handler(1_000, move || std::time::Instant::now() < deadline);
+        let mut connection = DeadlineConnection::acquire(&self.pool).await?;
         let result = self
-            .enqueue_in(&mut connection, actor, id, key, command)
+            .enqueue_in(&mut connection.connection, actor, id, key, command)
             .await;
-        // Await SQLite's worker close before releasing admission, including a rollback.
-        connection.close().await?;
+        let cleanup = connection.finish().await;
+        // Preserve the query's error if both the request and cleanup failed.
         let stored = result?;
+        cleanup?;
         self.wake_for_device(id).notify_waiters();
         self.view(stored).await
     }
@@ -825,23 +899,14 @@ impl OperationManager {
                 .bind(value.created_at_micros)
                 .bind(&value.operation_id);
         }
-        let mut connection = tokio::time::timeout(Duration::from_secs(2), self.pool.acquire())
-            .await
-            .map_err(|_| AppError::TooManyRequests { retry_after: 1 })??;
-        // A cancelled caller must never return a connection with this private progress
-        // callback to the pool. SQLite closes it through its own VFS and worker.
-        connection.close_on_drop();
-        let deadline = std::time::Instant::now() + Duration::from_secs(3);
-        connection
-            .lock_handle()
-            .await?
-            .set_progress_handler(1_000, move || std::time::Instant::now() < deadline);
+        let mut connection = DeadlineConnection::acquire(&self.pool).await?;
         let result = query
             .bind((HISTORY_PAGE_SIZE + 1) as i64)
-            .fetch_all(&mut *connection)
+            .fetch_all(&mut *connection.connection)
             .await;
-        connection.close().await?;
+        let cleanup = connection.finish().await;
         let mut rows = result?;
+        cleanup?;
         let more = rows.len() > HISTORY_PAGE_SIZE;
         rows.truncate(HISTORY_PAGE_SIZE);
         if newer {
@@ -1205,35 +1270,66 @@ impl OperationManager {
         }
         Ok(count)
     }
-    pub async fn run_until(self, mut shutdown: watch::Receiver<bool>) -> Result<(), String> {
-        loop {
-            if *shutdown.borrow() {
-                break;
-            }
-            self.deliver_outbox()
-                .await
-                .map_err(|_| "operation audit unavailable".to_owned())?;
-            let spaces: Vec<String> = sqlx::query_scalar(
-                "SELECT DISTINCT namespace FROM _common_operations WHERE state='running'",
-            )
-            .fetch_all(&self.pool)
+    async fn run_cycle(&self) -> anyhow::Result<()> {
+        // Replaying a partly completed cycle is safe: each audit sink+outbox ack
+        // commits atomically, recovered leases are state/owner fenced, and read
+        // resolution selects only remaining unknown rows in its transaction.
+        self.deliver_outbox()
             .await
-            .map_err(|_| "operation database unavailable".to_owned())?;
-            for space in spaces {
-                self.store
-                    .recover_expired(
-                        &space,
-                        db::now_micros().map_err(|_| "clock unavailable".to_owned())?,
-                    )
-                    .await
-                    .map_err(|_| "operation recovery unavailable".to_owned())?;
-            }
-            self.release_uncertain_reads()
+            .context("operation audit unavailable")?;
+        let spaces: Vec<String> = sqlx::query_scalar(
+            "SELECT DISTINCT namespace FROM _common_operations WHERE state='running'",
+        )
+        .fetch_all(&self.pool)
+        .await
+        .context("operation database unavailable")?;
+        for space in spaces {
+            self.store
+                .recover_expired(
+                    &space,
+                    db::now_micros().context("operation clock unavailable")?,
+                )
                 .await
-                .map_err(|_| "read operation recovery unavailable".to_owned())?;
-            tokio::select! {_ = xcss::server_runtime::wait_for_shutdown(&mut shutdown)=>break,_=tokio::time::sleep(Duration::from_secs(1))=>{}}
+                .context("operation recovery unavailable")?;
         }
+        self.release_uncertain_reads()
+            .await
+            .context("read operation recovery unavailable")?;
         Ok(())
+    }
+
+    pub async fn run_until(self, mut shutdown: watch::Receiver<bool>) -> Result<(), String> {
+        let mut completed_retries = 0;
+        loop {
+            let result = tokio::select! {
+                biased;
+                _ = xcss::server_runtime::wait_for_shutdown(&mut shutdown) => return Ok(()),
+                result = self.run_cycle() => result,
+            };
+            let delay = match result {
+                Ok(()) => {
+                    completed_retries = 0;
+                    Duration::from_secs(1)
+                }
+                Err(error) => {
+                    let Some(delay) = maintenance_retry_delay(&error, completed_retries) else {
+                        return Err(format!("{error:#}"));
+                    };
+                    completed_retries += 1;
+                    tracing::warn!(
+                        event = "xscs.operation.maintenance_locked",
+                        retry = completed_retries,
+                        delay_ms = delay.as_millis() as u64,
+                        error = %format!("{error:#}"),
+                        "retrying bounded operation maintenance after a SQLite lock"
+                    );
+                    delay
+                }
+            };
+            if maintenance_wait(&mut shutdown, delay).await {
+                return Ok(());
+            }
+        }
     }
 }
 pub fn validate_diagnostics(snapshot: &DiagnosticSnapshot) -> AppResult<()> {
@@ -1250,6 +1346,219 @@ fn validate_report(command: &Command, report: &Report) -> AppResult<()> {
 #[cfg(test)]
 mod capacity_tests {
     use super::*;
+
+    #[tokio::test]
+    async fn maintenance_retries_only_typed_sqlite_locks_with_a_fixed_bound() {
+        let directory = tempfile::tempdir().unwrap();
+        let options = sqlx::sqlite::SqliteConnectOptions::new()
+            .filename(directory.path().join("lock.db"))
+            .create_if_missing(true)
+            .busy_timeout(Duration::ZERO);
+        let mut owner = sqlx::SqliteConnection::connect_with(&options)
+            .await
+            .unwrap();
+        sqlx::query("CREATE TABLE lock_probe(value INTEGER)")
+            .execute(&mut owner)
+            .await
+            .unwrap();
+        let mut contender = sqlx::SqliteConnection::connect_with(&options)
+            .await
+            .unwrap();
+        let transaction = owner.begin_with("BEGIN IMMEDIATE").await.unwrap();
+        let busy = sqlx::query("INSERT INTO lock_probe(value) VALUES(7)")
+            .execute(&mut contender)
+            .await
+            .unwrap_err();
+        let busy = anyhow::Error::new(AppError::from(busy)).context("operation audit unavailable");
+        for (retry, millis) in [50, 100, 200].into_iter().enumerate() {
+            assert_eq!(
+                maintenance_retry_delay(&busy, retry),
+                Some(Duration::from_millis(millis))
+            );
+        }
+        assert_eq!(maintenance_retry_delay(&busy, 3), None);
+        transaction.rollback().await.unwrap();
+
+        let malformed = sqlx::query("SELECT * FROM missing_operation_table")
+            .execute(&mut contender)
+            .await
+            .unwrap_err();
+        let malformed =
+            anyhow::Error::new(AppError::from(malformed)).context("operation database unavailable");
+        assert_eq!(maintenance_retry_delay(&malformed, 0), None);
+        let formatted = format!("{malformed:#}");
+        assert!(formatted.contains("operation database unavailable"));
+        assert!(formatted.contains("missing_operation_table"));
+
+        let flattened = anyhow::Error::new(xcss::operations::Error::Storage(
+            "error returned from database: (code: 5) database is locked".into(),
+        ));
+        assert_eq!(maintenance_retry_delay(&flattened, 0), None);
+    }
+
+    #[tokio::test]
+    async fn maintenance_wait_observes_shutdown_without_waiting_for_the_delay() {
+        let (request, mut shutdown) = watch::channel(false);
+        let waiting = tokio::spawn(async move {
+            maintenance_wait(&mut shutdown, Duration::from_secs(3600)).await
+        });
+        tokio::task::yield_now().await;
+        request.send(true).unwrap();
+        assert!(
+            tokio::time::timeout(Duration::from_secs(1), waiting)
+                .await
+                .unwrap()
+                .unwrap()
+        );
+    }
+
+    #[tokio::test]
+    async fn maintenance_cycle_preserves_foundation_storage_diagnostics() {
+        let (_directory, manager, _, _) = fixture().await;
+        manager.pool.close().await;
+        let error = manager.run_cycle().await.unwrap_err();
+        let formatted = format!("{error:#}");
+        assert!(formatted.contains("operation audit unavailable"));
+        assert!(formatted.contains("closed pool"));
+        assert_eq!(maintenance_retry_delay(&error, 0), None);
+    }
+
+    // A single-connection pool makes temporary-table identity an observable
+    // contract: it survives a reused connection but not a cancelled one.
+    async fn deadline_pool() -> sqlx::SqlitePool {
+        sqlx::sqlite::SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn deadline_connection_reuses_success_without_leaking_expired_progress() {
+        let pool = deadline_pool().await;
+        let mut guarded = DeadlineConnection::acquire(&pool).await.unwrap();
+        sqlx::query("CREATE TEMP TABLE request_connection(value INTEGER)")
+            .execute(&mut *guarded.connection)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO request_connection(value) VALUES(7)")
+            .execute(&mut *guarded.connection)
+            .await
+            .unwrap();
+        // Model a deadline expiring immediately after the completed statement.
+        guarded
+            .connection
+            .lock_handle()
+            .await
+            .unwrap()
+            .set_progress_handler(1, || false);
+        guarded.finish().await.unwrap();
+
+        let mut connection = pool.acquire().await.unwrap();
+        let value: i64 = sqlx::query_scalar("SELECT value FROM request_connection")
+            .fetch_one(&mut *connection)
+            .await
+            .unwrap();
+        assert_eq!(value, 7);
+        let total: i64 = sqlx::query_scalar(
+            "WITH RECURSIVE n(value) AS (SELECT 1 UNION ALL SELECT value+1 FROM n WHERE value<1000) SELECT SUM(value) FROM n",
+        )
+        .fetch_one(&mut *connection)
+        .await
+        .unwrap();
+        assert_eq!(total, 500_500);
+    }
+
+    #[tokio::test]
+    async fn deadline_connection_reuses_failed_query_after_transaction_rollback() {
+        let pool = deadline_pool().await;
+        let mut guarded = DeadlineConnection::acquire(&pool).await.unwrap();
+        sqlx::query("CREATE TEMP TABLE request_connection(value INTEGER CHECK(value>0))")
+            .execute(&mut *guarded.connection)
+            .await
+            .unwrap();
+        let mut transaction = guarded.connection.begin().await.unwrap();
+        sqlx::query("INSERT INTO request_connection(value) VALUES(7)")
+            .execute(&mut *transaction)
+            .await
+            .unwrap();
+        let failure = sqlx::query("INSERT INTO request_connection(value) VALUES(0)")
+            .execute(&mut *transaction)
+            .await
+            .unwrap_err();
+        assert!(failure.as_database_error().is_some());
+        drop(transaction);
+        guarded.finish().await.unwrap();
+
+        let mut connection = pool.acquire().await.unwrap();
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM request_connection")
+            .fetch_one(&mut *connection)
+            .await
+            .unwrap();
+        assert_eq!(count, 0);
+        assert!(!connection.is_in_transaction());
+    }
+
+    #[tokio::test]
+    async fn deadline_connection_cancelled_during_worker_query_is_not_reused() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+
+        let pool = deadline_pool().await;
+        let task_pool = pool.clone();
+        let interrupted = Arc::new(AtomicBool::new(false));
+        let callback_interrupted = interrupted.clone();
+        let (entered, running) = tokio::sync::oneshot::channel();
+        let task = tokio::spawn(async move {
+            let mut guarded = DeadlineConnection::acquire(&task_pool).await.unwrap();
+            sqlx::query("CREATE TEMP TABLE request_connection(value INTEGER)")
+                .execute(&mut *guarded.connection)
+                .await
+                .unwrap();
+            let mut entered = Some(entered);
+            guarded
+                .connection
+                .lock_handle()
+                .await
+                .unwrap()
+                .set_progress_handler(1000, move || {
+                    if let Some(entered) = entered.take() {
+                        entered.send(()).unwrap();
+                    }
+                    !callback_interrupted.load(Ordering::Acquire)
+                });
+            let result: Result<i64, _> = sqlx::query_scalar(
+                "WITH RECURSIVE n(value) AS (SELECT 1 UNION ALL SELECT value+1 FROM n WHERE value<1000000000) SELECT SUM(value) FROM n",
+            )
+            .fetch_one(&mut *guarded.connection)
+            .await;
+            guarded.finish().await.unwrap();
+            result
+        });
+        tokio::time::timeout(Duration::from_secs(2), running)
+            .await
+            .unwrap()
+            .unwrap();
+        task.abort();
+        assert!(task.await.unwrap_err().is_cancelled());
+        interrupted.store(true, Ordering::Release);
+
+        let mut connection = tokio::time::timeout(Duration::from_secs(5), pool.acquire())
+            .await
+            .unwrap()
+            .unwrap();
+        let marker_exists: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_temp_master WHERE name='request_connection')",
+        )
+        .fetch_one(&mut *connection)
+        .await
+        .unwrap();
+        assert!(!marker_exists);
+        let value: i64 = sqlx::query_scalar("SELECT 7")
+            .fetch_one(&mut *connection)
+            .await
+            .unwrap();
+        assert_eq!(value, 7);
+    }
 
     async fn registered(pool: &sqlx::SqlitePool) -> (String, String) {
         let ticket = db::create_device(
