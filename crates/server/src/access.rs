@@ -301,12 +301,9 @@ pub async fn policy(
             manager_id,
             device_id: uuid::Uuid::parse_str(&device.device_id)
                 .map_err(|e| AppError::Internal(e.into()))?,
-            installation_id: uuid::Uuid::parse_str(
-                device
-                    .installation_id
-                    .as_deref()
-                    .ok_or(AppError::Unauthorized)?,
-            )
+            installation_id: uuid::Uuid::parse_str(device.installation_id.as_deref().ok_or_else(
+                || AppError::Internal(anyhow::anyhow!("policy row lost installation id")),
+            )?)
             .map_err(|e| AppError::Internal(e.into()))?,
         })
     };
@@ -318,10 +315,9 @@ pub async fn policy(
     let mut peers = Vec::with_capacity(rows.len());
     for device in rows {
         let peer_binding = binding_of(&device)?;
-        let peer_credential = device
-            .credential_hash
-            .as_deref()
-            .ok_or(AppError::Unauthorized)?;
+        let peer_credential = device.credential_hash.as_deref().ok_or_else(|| {
+            AppError::Internal(anyhow::anyhow!("policy row lost peer credential"))
+        })?;
         let session_key = if own_role == InstanceRole::Controller {
             secrets.session_key(&own_binding, &peer_binding, own_credential, peer_credential)?
         } else {
@@ -337,7 +333,7 @@ pub async fn policy(
         );
         let fresh = device
             .addresses_at_micros
-            .is_some_and(|at| now >= at && now - at < 45_000_000);
+            .is_some_and(|at| now >= at && now - at < db::SESSION_FRESH_WINDOW_MICROS);
         peers.push(AccessPeer {
             binding: peer_binding,
             session_key,

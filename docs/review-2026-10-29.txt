@@ -1,0 +1,25 @@
+2026-10-29 xscs-improvements.patch 审阅与后端优化
+
+用户要求客户端采用新视觉、服务端页面不改。本轮只改服务端后端，不改Web页面、样式、DDL、schema identity、协议或运行数据。
+
+采纳
+1. 设备namespace半开范围匹配现有索引，覆盖该device全部历史installation；保留target_key、actor、时间/游标、领取事务及当前installation授权。启动校验及decode_task已保证namespace与规范binding一致，未放宽输入。
+2. maintenance/read-release增加与部分active_target索引一致的state谓词，语义不变。六组真实查询形状的SQLite EXPLAIN由全表/全pending扫描变为namespace范围或active部分索引查找；排序临时B-tree仍存在，不宣称测得吞吐提升。
+3. Ping/Pong仅查询当前binding/installation/session/revocation/freshness，不重复FULL持久化写。当前已发货桌面和移动统一transport每15秒无条件发业务Heartbeat后再Ping，45秒窗口不变。业务Heartbeat仍一次原子UPDATE，Hello/其余消息/领取/发送继续现有实时校验。
+4. 每设备单socket permit覆盖整个连接生命周期，因此enqueue用notify_one保留忙时唤醒；不增加新连接状态或缓存。历史大响应用Bytes::slice共享已序列化buffer，permit仍覆盖流生命周期。
+5. serve_client复用connect认证过的Device不可变role/backend投影；Hello UPDATE和policy仍检查可变授权事实。持久化peer credential/installation或能力序列化异常归Internal，避免误报请求者未认证；未注册的真实业务情况仍Conflict。
+6. 等价配对校验包装删除、45秒常量共用、健康校验保留内部失败原因。健康回调由基础运行时定期执行并缓存，不是每个readyz HTTP请求重新执行。
+
+修正/保留
+补丁list_inner中的range变量遮蔽原日期范围，已改为namespace_range。公开enqueue作为独立API继续校验幂等键，未因HTTP层已有校验就删除。保留FULL同步、事务、schema/完整性检查、认证/CSRF/来源、容量限制与日志脱敏。
+
+变更面
+crates/server/src/operations.rs：设备任务历史/汇总/领取/维护查询、单消费者唤醒和损坏安装身份分类；增加忙时唤醒与跨installation/actor/date历史行为回归。
+crates/server/src/http.rs：连接已认证身份复用、控制帧只读fence、响应分块和等价超时常量；增强真实WebSocket写次数与撤销关闭回归。
+crates/server/src/db.rs：共用新鲜度常量与等价授权码校验调用。
+crates/server/src/access.rs：损坏对端数据的Internal分类及同窗口常量。
+crates/server/src/database_schema.rs：已有健康校验失败原因日志，schema规则不变。
+crates/server/tests/access.rs：损坏peer对请求方不误判Unauthorized的行为回归。
+
+验证
+完整locked/offline workspace/all-targets测试327项通过、0失败（既有3个专用helper ignored，子进程输出不重复计数）；新3项与增强的Heartbeat一次写、Ping/Pong零写、撤权仍关闭、损坏安装/对端分类均通过。格式/diff检查及locked/offline workspace/all-targets Clippy -D warnings均通过。安装、旧实例/凭据/授权与UI资源保留由后续正常部署单独验收；此记录不冒充已部署新源码。

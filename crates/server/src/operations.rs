@@ -452,6 +452,14 @@ async fn record_diagnostics(
 fn namespace(device_id: &str, installation_id: &Uuid, resource: &str) -> String {
     format!("xscc.client.v2.{device_id}.{installation_id}.{resource}")
 }
+// Startup validates every task's exact namespace against its canonical binding.
+// This device prefix includes historical installations without scanning other devices.
+fn device_namespace_range(device_id: &str) -> (String, String) {
+    (
+        format!("xscc.client.v2.{device_id}."),
+        format!("xscc.client.v2.{device_id}/"),
+    )
+}
 fn resource(command: &Command) -> &'static str {
     xscs_protocol::command_storage_contract(command).resource
 }
@@ -655,7 +663,8 @@ impl OperationManager {
         // Preserve the query's error if both the request and cleanup failed.
         let stored = result?;
         cleanup?;
-        self.wake_for_device(id).notify_waiters();
+        // The socket permit allows one consumer; retain a wake while it is busy.
+        self.wake_for_device(id).notify_one();
         self.view(stored).await
     }
     async fn enqueue_in(
@@ -686,7 +695,9 @@ impl OperationManager {
             installation_id: device
                 .installation_id
                 .as_deref()
-                .and_then(|id| Uuid::parse_str(id).ok())
+                .map(Uuid::parse_str)
+                .transpose()
+                .map_err(internal)?
                 .ok_or_else(|| AppError::Conflict("请先注册 Client".into()))?,
         };
         let capabilities: Capabilities = device
@@ -881,8 +892,10 @@ impl OperationManager {
             None => "",
         };
         let order = if newer { "ASC" } else { "DESC" };
+        let namespace_range = device_namespace_range(device);
         let sql = format!(
             "{projection} WHERE op.target_key=? \
+            AND op.namespace>=? AND op.namespace<? \
             AND json_extract(CAST(substr(op.request_payload,1,131073) AS TEXT),'$.actor')=? \
             {time_filter} {anchor_filter} ORDER BY op.created_at_micros {order},operation_id {order} LIMIT ?"
         );
@@ -890,6 +903,8 @@ impl OperationManager {
             .bind((MAX_REPORT_BYTES + 1) as i64)
             .bind((MAX_REPORT_BYTES + 1) as i64)
             .bind(device)
+            .bind(namespace_range.0)
+            .bind(namespace_range.1)
             .bind(actor);
         if let Some((from, to)) = range {
             query = query.bind(from).bind(to);
@@ -951,11 +966,15 @@ impl OperationManager {
     }
 
     pub async fn summary_for_device(&self, device: &str) -> AppResult<OperationSummary> {
+        let namespace_range = device_namespace_range(device);
         let blocking_count = sqlx::query_scalar(
             "SELECT COUNT(*) FROM _common_operations WHERE target_key=? \
+             AND namespace>=? AND namespace<? \
              AND namespace LIKE '%.write' AND state IN ('pending','running','unknown')",
         )
         .bind(device)
+        .bind(namespace_range.0)
+        .bind(namespace_range.1)
         .fetch_one(&self.pool)
         .await?;
         Ok(OperationSummary { blocking_count })
@@ -1002,14 +1021,14 @@ impl OperationManager {
     // first fences interrupted leases as unknown; close only the read lane with
     // its explicit unable-to-confirm outcome, preserving reports and audit history.
     async fn release_uncertain_reads(&self) -> AppResult<()> {
-        let pending: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM _common_operations WHERE namespace LIKE 'xscc.client.v2.%.read' AND state='unknown')")
+        let pending: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM _common_operations WHERE namespace LIKE 'xscc.client.v2.%.read' AND state='unknown' AND state IN ('running','unknown'))")
             .fetch_one(&self.pool).await?;
         if !pending {
             return Ok(());
         }
         let mut tx = self.pool.begin_with("BEGIN IMMEDIATE").await?;
         let ids: Vec<String> = sqlx::query_scalar(
-            "SELECT operation_id FROM _common_operations WHERE namespace LIKE 'xscc.client.v2.%.read' AND state='unknown'",
+            "SELECT operation_id FROM _common_operations WHERE namespace LIKE 'xscc.client.v2.%.read' AND state='unknown' AND state IN ('running','unknown')",
         )
         .fetch_all(&mut *tx)
         .await?;
@@ -1050,9 +1069,10 @@ impl OperationManager {
     pub async fn next(&self, device: &str, owner: &str) -> AppResult<Option<StoredOperation>> {
         loop {
             let now = db::now_micros()?;
+            let namespace_range = device_namespace_range(device);
             // Avoid a SQLite write lock for idle devices. Authorization is rechecked in the claim.
-            let eligible: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM _common_operations WHERE target_key=? AND state='pending' AND not_before_micros<=?)")
-                .bind(device).bind(now).fetch_one(&self.pool).await?;
+            let eligible: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM _common_operations WHERE target_key=? AND state='pending' AND not_before_micros<=? AND namespace>=? AND namespace<?)")
+                .bind(device).bind(now).bind(&namespace_range.0).bind(&namespace_range.1).fetch_one(&self.pool).await?;
             if !eligible {
                 return Ok(None);
             }
@@ -1063,9 +1083,11 @@ impl OperationManager {
                 .bind(device).bind(owner).fetch_optional(&mut *tx).await?.ok_or(AppError::Unauthorized)?;
             let installation = Uuid::parse_str(&installation).map_err(internal)?;
             let already_running: bool = sqlx::query_scalar(
-                "SELECT EXISTS(SELECT 1 FROM _common_operations WHERE target_key=? AND state='running')",
+                "SELECT EXISTS(SELECT 1 FROM _common_operations WHERE target_key=? AND state='running' AND state IN ('running','unknown') AND namespace>=? AND namespace<?)",
             )
             .bind(device)
+            .bind(&namespace_range.0)
+            .bind(&namespace_range.1)
             .fetch_one(&mut *tx)
             .await?;
             if already_running {
@@ -1073,8 +1095,8 @@ impl OperationManager {
                 return Ok(None);
             }
             // Oldest eligible task wins. An unresolved write blocks later writes, not reads.
-            let candidate: Option<String> = sqlx::query_scalar("SELECT namespace FROM _common_operations WHERE target_key=? AND state='pending' AND not_before_micros<=? AND namespace IN (?,?) AND (namespace LIKE '%.read' OR NOT EXISTS(SELECT 1 FROM _common_operations WHERE target_key=? AND namespace LIKE '%.write' AND state='unknown')) ORDER BY created_at_micros,operation_id LIMIT 1")
-                .bind(device).bind(now).bind(namespace(device, &installation, "read")).bind(namespace(device, &installation, "write")).bind(device).fetch_optional(&mut *tx).await?;
+            let candidate: Option<String> = sqlx::query_scalar("SELECT namespace FROM _common_operations WHERE target_key=? AND state='pending' AND not_before_micros<=? AND namespace IN (?,?) AND (namespace LIKE '%.read' OR NOT EXISTS(SELECT 1 FROM _common_operations WHERE target_key=? AND namespace>=? AND namespace<? AND namespace LIKE '%.write' AND state='unknown' AND state IN ('running','unknown'))) ORDER BY created_at_micros,operation_id LIMIT 1")
+                .bind(device).bind(now).bind(namespace(device, &installation, "read")).bind(namespace(device, &installation, "write")).bind(device).bind(&namespace_range.0).bind(&namespace_range.1).fetch_optional(&mut *tx).await?;
             let claimed = match candidate {
                 Some(candidate) => SqliteOperationStore::claim_next_in(
                     &mut tx,
@@ -1278,7 +1300,7 @@ impl OperationManager {
             .await
             .context("operation audit unavailable")?;
         let spaces: Vec<String> = sqlx::query_scalar(
-            "SELECT DISTINCT namespace FROM _common_operations WHERE state='running'",
+            "SELECT DISTINCT namespace FROM _common_operations WHERE state='running' AND state IN ('running','unknown')",
         )
         .fetch_all(&self.pool)
         .await
@@ -1679,6 +1701,88 @@ mod capacity_tests {
                 .result_payload,
             stored.result_payload
         );
+    }
+
+    #[tokio::test]
+    async fn queued_work_retains_a_wake_while_the_single_socket_is_busy() {
+        let (_directory, manager, device, _) = fixture().await;
+        let wake = manager.wake_for_device(&device);
+        manager
+            .enqueue("admin", &device, "wake", Command::ReadDiagnostics {})
+            .await
+            .unwrap();
+        tokio::time::timeout(Duration::from_millis(100), wake.notified())
+            .await
+            .expect("queued work must not wait for the five-second poll");
+    }
+
+    #[tokio::test]
+    async fn history_range_keeps_prior_installations_and_actor_device_boundaries() {
+        let (_directory, manager, device, other) = fixture().await;
+        let old = manager
+            .enqueue("admin", &device, "old", Command::ReadDiagnostics {})
+            .await
+            .unwrap();
+        sqlx::query("UPDATE devices SET installation_id=? WHERE device_id=?")
+            .bind(Uuid::new_v4().to_string())
+            .bind(&device)
+            .execute(&manager.pool)
+            .await
+            .unwrap();
+        let current = manager
+            .enqueue("admin", &device, "new", Command::ReadDiagnostics {})
+            .await
+            .unwrap();
+        let other_actor = manager
+            .enqueue("other", &device, "actor", Command::ReadDiagnostics {})
+            .await
+            .unwrap();
+        let other_device = manager
+            .enqueue("admin", &other, "device", Command::ReadDiagnostics {})
+            .await
+            .unwrap();
+        let outside = manager
+            .enqueue("admin", &device, "outside", Command::ReadDiagnostics {})
+            .await
+            .unwrap();
+        let (from, to) = server_date_bounds("2026-01-15").unwrap();
+        for (operation, at) in [
+            (&old, from + 1),
+            (&current, from + 2),
+            (&other_actor, from + 3),
+            (&other_device, from + 4),
+            (&outside, to),
+        ] {
+            sqlx::query("UPDATE _common_operations SET created_at_micros=?,updated_at_micros=? WHERE operation_id=?")
+                .bind(at).bind(at).bind(&operation.operation_id)
+                .execute(&manager.pool).await.unwrap();
+        }
+        for operation in [&old, &current] {
+            let stored = manager
+                .store
+                .get(&operation.operation_id)
+                .await
+                .unwrap()
+                .unwrap();
+            manager.task(&stored).unwrap();
+        }
+        let page = manager
+            .history_for_actor("admin", &device, Some("2026-01-15"), None)
+            .await
+            .unwrap();
+        assert_eq!(
+            page.operations
+                .iter()
+                .map(|operation| &operation.operation_id)
+                .collect::<Vec<_>>(),
+            vec![&current.operation_id, &old.operation_id]
+        );
+        let all = manager
+            .history_for_actor("admin", &device, None, None)
+            .await
+            .unwrap();
+        assert_eq!(all.operations.len(), 3);
+        assert_eq!(all.operations[0].operation_id, outside.operation_id);
     }
 
     #[tokio::test]

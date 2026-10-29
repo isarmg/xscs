@@ -123,6 +123,8 @@ impl Device {
         })
     }
 }
+pub(crate) const SESSION_FRESH_WINDOW_MICROS: i64 = 45_000_000;
+
 pub(crate) fn session_is_online(
     revoked_at_micros: Option<i64>,
     session: Option<&str>,
@@ -131,7 +133,8 @@ pub(crate) fn session_is_online(
 ) -> bool {
     revoked_at_micros.is_none()
         && session.is_some()
-        && last_seen_at_micros.is_some_and(|seen| now.saturating_sub(seen) < 45_000_000)
+        && last_seen_at_micros
+            .is_some_and(|seen| now.saturating_sub(seen) < SESSION_FRESH_WINDOW_MICROS)
 }
 
 pub(crate) async fn current_session(
@@ -333,7 +336,7 @@ async fn retire_operations_for_invalidation(
     Ok(())
 }
 pub async fn resolve_pairing(pool: &SqlitePool, token: &str) -> AppResult<serde_json::Value> {
-    validate_pairing_authorization_code(token).map_err(|_| AppError::Unauthorized)?;
+    validate_authorization_code(token).map_err(|_| AppError::Unauthorized)?;
     let id: Option<String> = sqlx::query_scalar("SELECT device_id FROM devices WHERE enrollment_hash=? AND installation_id IS NULL AND revoked_at_micros IS NULL")
         .bind(token_hash(token).as_slice()).fetch_optional(pool).await?;
     let id = id.ok_or(AppError::Unauthorized)?;
@@ -427,7 +430,7 @@ pub async fn enroll(
     token: &str,
     credential: &str,
 ) -> AppResult<Binding> {
-    validate_pairing_authorization_code(token)?;
+    validate_authorization_code(token)?;
     validate_token(credential)?;
     if installation.is_nil() {
         return Err(AppError::BadRequest("安装身份无效".into()));
@@ -526,13 +529,6 @@ pub fn validate_authorization_code(value: &str) -> AppResult<()> {
         Ok(())
     }
 }
-fn validate_pairing_authorization_code(value: &str) -> AppResult<()> {
-    if validate_authorization_code(value).is_ok() {
-        Ok(())
-    } else {
-        Err(AppError::BadRequest("实例密码格式无效".into()))
-    }
-}
 pub async fn audit(
     tx: &mut Transaction<'_, Sqlite>,
     action: &str,
@@ -576,7 +572,7 @@ pub async fn require_current_runtime_state(
         let code = secrets
             .decrypt_client_authorization(&device.device_id, &device.authorization_code_enc)
             .map_err(|_| anyhow::anyhow!("stored client authorization is unreadable"))?;
-        validate_pairing_authorization_code(&code)
+        validate_authorization_code(&code)
             .map_err(|_| anyhow::anyhow!("stored client authorization is invalid"))?;
         if let Some(stored_hash) = device.enrollment_hash {
             anyhow::ensure!(

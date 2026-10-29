@@ -195,7 +195,17 @@ pub async fn validate_pool(pool: &SqlitePool) -> anyhow::Result<()> {
 }
 
 pub async fn is_current(pool: &SqlitePool) -> bool {
-    validate_pool(pool).await.is_ok()
+    match validate_pool(pool).await {
+        Ok(()) => true,
+        Err(error) => {
+            tracing::warn!(
+                event = "xscs.readiness.schema_check_failed",
+                error = ?error,
+                "database readiness check failed"
+            );
+            false
+        }
+    }
 }
 
 pub async fn actual_schema_sha256(pool: &SqlitePool) -> anyhow::Result<String> {

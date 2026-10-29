@@ -398,6 +398,7 @@ impl HistoryReads {
     }
 }
 fn task_page_response(bytes: Vec<u8>, permit: HistoryReadPermit) -> Response {
+    let bytes = Bytes::from(bytes);
     let stream = futures_util::stream::unfold(
         (bytes, 0usize, permit),
         |(bytes, offset, permit)| async move {
@@ -405,7 +406,7 @@ fn task_page_response(bytes: Vec<u8>, permit: HistoryReadPermit) -> Response {
                 return None;
             }
             let end = (offset + 16 * 1024).min(bytes.len());
-            let chunk = Bytes::copy_from_slice(&bytes[offset..end]);
+            let chunk = bytes.slice(offset..end);
             Some((
                 Ok::<_, std::convert::Infallible>(chunk),
                 (bytes, end, permit),
@@ -697,7 +698,7 @@ async fn client_connect(
             let mut pending = None;
             let session = uuid::Uuid::new_v4().to_string();
             tracing::info!(event = "xscs.instance.connected", instance_id = %binding.device_id, instance_type = backend.as_str(), task_id = session.as_str(), request_id = request_id.as_str());
-            if let Err(error) = serve_client(&state, socket, &binding, &authenticated_credential_hash, &session, &mut pending).await {
+            if let Err(error) = serve_client(&state, socket, device, &binding, &authenticated_credential_hash, &session, &mut pending).await {
                 tracing::warn!(event = "xscs.instance.connection_failed", instance_id = %binding.device_id, instance_type = backend.as_str(), task_id = session.as_str(), request_id = request_id.as_str(), error = ?error, "client session ended with an error");
             }
             if let Some(operation) = pending
@@ -764,6 +765,7 @@ fn result_completes_pending(
 async fn serve_client(
     state: &WorkerState,
     mut socket: WebSocket,
+    policy_identity: db::Device,
     binding: &Binding,
     authenticated_credential_hash: &[u8],
     session: &str,
@@ -781,7 +783,6 @@ async fn serve_client(
         return Err(AppError::Unauthorized);
     }
     let id = binding.device_id.to_string();
-    let policy_identity = db::get_device(&state.pool, &id).await?;
     if capabilities.backend != policy_identity.backend()? {
         return Err(AppError::Unauthorized);
     }
@@ -789,8 +790,10 @@ async fn serve_client(
     if !capabilities.os.supports_role(instance_role) {
         return Err(AppError::Unauthorized);
     }
+    let capabilities_json =
+        serde_json::to_string(&capabilities).map_err(|error| AppError::Internal(error.into()))?;
     let changed=sqlx::query("UPDATE devices SET session_id=?,last_seen_at_micros=?,capabilities_json=?,addresses_json=NULL,addresses_at_micros=NULL WHERE device_id=? AND installation_id=? AND revoked_at_micros IS NULL AND credential_hash=?")
-        .bind(session).bind(db::now_micros()?).bind(serde_json::to_string(&capabilities).map_err(|_|AppError::Unauthorized)?).bind(&id).bind(binding.installation_id.to_string()).bind(authenticated_credential_hash).execute(&state.pool).await?.rows_affected();
+        .bind(session).bind(db::now_micros()?).bind(capabilities_json).bind(&id).bind(binding.installation_id.to_string()).bind(authenticated_credential_hash).execute(&state.pool).await?.rows_affected();
     if changed != 1 {
         return Err(AppError::Unauthorized);
     }
@@ -850,8 +853,14 @@ async fn serve_client(
                         .map_err(|_| AppError::BadRequest("Client 消息无效".into()))?),
                     _ => None,
                 };
-                if !matches!(&message, Some(ClientMessage::Heartbeat { .. }))
-                    && !db::touch_session(&state.pool, binding, session).await? {
+                // Application heartbeats maintain liveness; control frames still fence revocation.
+                let revoked = if matches!(&frame, Message::Ping(_) | Message::Pong(_)) {
+                    !db::current_session(&state.pool, binding, session).await?
+                } else {
+                    !matches!(&message, Some(ClientMessage::Heartbeat { .. }))
+                        && !db::touch_session(&state.pool, binding, session).await?
+                };
+                if revoked {
                     let _ = send(&mut socket, ManagerMessage::Revoked {}).await;
                     return Err(AppError::Unauthorized);
                 }
@@ -908,7 +917,7 @@ async fn serve_client(
                 }
             }
             _=async {tokio::select!{_=poll.tick()=>{},_=wake.notified()=>{}}}=>{
-                if last_seen.elapsed()>Duration::from_secs(45)||(pending.is_some()&&dispatched.elapsed()>Duration::from_secs(110)){return Err(AppError::Unauthorized);}
+                if last_seen.elapsed()>Duration::from_micros(db::SESSION_FRESH_WINDOW_MICROS as u64)||(pending.is_some()&&dispatched.elapsed()>Duration::from_secs(110)){return Err(AppError::Unauthorized);}
                 if !db::current_session(&state.pool, binding, session).await? {
                     let _ = send(&mut socket, ManagerMessage::Revoked {}).await;
                     return Err(AppError::Unauthorized);
@@ -1423,6 +1432,17 @@ mod tests {
             let heartbeat_updates: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM heartbeat_updates WHERE device_id=?")
                 .bind(&host.device.id).fetch_one(&pool).await.unwrap();
             assert_eq!(heartbeat_updates, 1, "one heartbeat is one atomic device update");
+            sockets[1].send(Frame::Pong(b"read-only".to_vec().into())).await.unwrap();
+            sockets[1].send(Frame::Ping(b"control-fence".to_vec().into())).await.unwrap();
+            loop {
+                if let Frame::Pong(bytes) = sockets[1].next().await.unwrap().unwrap()
+                    && bytes.as_ref() == b"control-fence" {
+                    break;
+                }
+            }
+            let control_updates: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM heartbeat_updates WHERE device_id=?")
+                .bind(&host.device.id).fetch_one(&pool).await.unwrap();
+            assert_eq!(control_updates, 1, "Ping/Pong must not add a liveness write");
             sqlx::query("UPDATE devices SET diagnostics_json=?,capabilities_json='invalid' WHERE device_id=?")
                 .bind(r#"{"backend":"one_kvm","execution_mode":"embedded","integration_state":"ready","rustdesk_version":null,"one_kvm_version":null}"#)
                 .bind(&host.device.id)
@@ -1490,6 +1510,14 @@ mod tests {
                     if policy.peers.is_empty() {
                         break;
                     }
+                }
+            }
+            db::revoke(&pool, &host.device.id, "admin").await.unwrap();
+            sockets[1].send(Frame::Ping(b"revoked".to_vec().into())).await.unwrap();
+            loop {
+                if let Frame::Text(text) = sockets[1].next().await.unwrap().unwrap()
+                    && matches!(serde_json::from_str::<ManagerMessage>(&text).unwrap(), ManagerMessage::Revoked {}) {
+                    break;
                 }
             }
             server.abort();

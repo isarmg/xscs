@@ -486,4 +486,35 @@ async fn stored_binding_corruption_is_not_reported_as_an_unregistered_device() {
         db::binding(&pool, &corrupt).await,
         Err(xscs::AppError::Internal(_))
     ));
+    let manager = xscs::operations::OperationManager::new(
+        pool.clone(),
+        SecretBox::new("test", [7; 32]).unwrap(),
+    );
+    assert!(matches!(
+        manager
+            .enqueue("admin", &id, "corrupt-id", Command::ReadDiagnostics {})
+            .await,
+        Err(xscs::AppError::Internal(_))
+    ));
+}
+
+#[tokio::test]
+async fn corrupt_peer_row_is_a_server_fault_not_the_requesters_authorization() {
+    let (_directory, pool) = fixture().await;
+    let secrets = SecretBox::new("test", [7; 32]).unwrap();
+    let (controller, credential) =
+        create(&pool, InstanceRole::Controller, "Controller", true).await;
+    let (host, _) = create(&pool, InstanceRole::Controlled, "Host", true).await;
+    replace(&pool, &controller, &[&host]).await.unwrap();
+    let own = db::authenticate_device(&pool, &credential).await.unwrap();
+    access::policy(&pool, &secrets, &own, None).await.unwrap();
+    sqlx::query("UPDATE devices SET credential_hash=NULL WHERE device_id=?")
+        .bind(&host)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(matches!(
+        access::policy(&pool, &secrets, &own, None).await,
+        Err(xscs::AppError::Internal(_))
+    ));
 }
