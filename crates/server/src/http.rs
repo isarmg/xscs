@@ -359,6 +359,15 @@ struct HistoryReadPermit {
     _global: OwnedSemaphorePermit,
     _device: OwnedSemaphorePermit,
 }
+struct TaskPageOwner {
+    bytes: Vec<u8>,
+    _permit: HistoryReadPermit,
+}
+impl AsRef<[u8]> for TaskPageOwner {
+    fn as_ref(&self) -> &[u8] {
+        &self.bytes
+    }
+}
 impl HistoryReads {
     fn new() -> Self {
         Self::with_capacity(4)
@@ -398,21 +407,18 @@ impl HistoryReads {
     }
 }
 fn task_page_response(bytes: Vec<u8>, permit: HistoryReadPermit) -> Response {
-    let bytes = Bytes::from(bytes);
-    let stream = futures_util::stream::unfold(
-        (bytes, 0usize, permit),
-        |(bytes, offset, permit)| async move {
-            if offset == bytes.len() {
-                return None;
-            }
-            let end = (offset + 16 * 1024).min(bytes.len());
-            let chunk = bytes.slice(offset..end);
-            Some((
-                Ok::<_, std::convert::Infallible>(chunk),
-                (bytes, end, permit),
-            ))
-        },
-    );
+    let bytes = Bytes::from_owner(TaskPageOwner {
+        bytes,
+        _permit: permit,
+    });
+    let stream = futures_util::stream::unfold((bytes, 0usize), |(bytes, offset)| async move {
+        if offset == bytes.len() {
+            return None;
+        }
+        let end = (offset + 16 * 1024).min(bytes.len());
+        let chunk = bytes.slice(offset..end);
+        Some((Ok::<_, std::convert::Infallible>(chunk), (bytes, end)))
+    });
     let mut response = Body::from_stream(stream).into_response();
     response.headers_mut().insert(
         axum::http::header::CONTENT_TYPE,
@@ -1112,6 +1118,22 @@ mod tests {
         let response = task_page_response(vec![0; 32 * 1024], permit);
         drop(response);
         assert!(reads.acquire("different-device").is_ok());
+    }
+
+    #[tokio::test]
+    async fn historical_read_permit_follows_a_retained_chunk_after_body_drop() {
+        let reads = HistoryReads::new();
+        let mut body = task_page_response(vec![0; 32 * 1024], reads.acquire("held-chunk").unwrap())
+            .into_body();
+        let chunk = body.frame().await.unwrap().unwrap().into_data().unwrap();
+        assert_eq!(chunk.len(), 16 * 1024);
+        drop(body);
+        assert!(matches!(
+            reads.acquire("held-chunk"),
+            Err(AppError::TooManyRequests { .. })
+        ));
+        drop(chunk);
+        assert!(reads.acquire("held-chunk").is_ok());
     }
 
     #[test]

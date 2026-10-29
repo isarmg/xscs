@@ -23,3 +23,6 @@ crates/server/tests/access.rs：损坏peer对请求方不误判Unauthorized的�
 
 验证
 完整locked/offline workspace/all-targets测试327项通过、0失败（既有3个专用helper ignored，子进程输出不重复计数）；新3项与增强的Heartbeat一次写、Ping/Pong零写、撤权仍关闭、损坏安装/对端分类均通过。格式/diff检查及locked/offline workspace/all-targets Clippy -D warnings均通过。安装、旧实例/凭据/授权与UI资源保留由后续正常部署单独验收；此记录不冒充已部署新源码。
+
+零拷贝额度生命周期补充修正
+ca3 初次整合后独立审阅发现，网络下游持有的Bytes切片会保留整个页面，而旧unfold结束时可先归还读取额度。新增真实Body.frame回归在ca3精确运行1项失败；用锁定bytes1.12.1的from_owner将原Vec与原HistoryReadPermit共同拥有，最后一个slice释放后归还既有额度，保持零拷贝、无新全局状态。该回归绿1项、全部HTTP21项、workspace/all-targets严格Clippy及fmt/diff通过；未把这些局部结果冒充全套328在本机重新跑过。此修正在任何新服务部署前完成，不修改已推送ca3历史。
