@@ -275,13 +275,25 @@ html:root .xcss-admin-shell :is(dt, dd) { display: flex; align-items: center; mi
 html:root .xcss-admin-shell dt { color: var(--xcss-block-muted); }
 html:root .xcss-admin-shell .xcss-dialog { width: min(40rem, calc(100% - 2rem)); padding: var(--xscs-text-inset); border: 0; background: var(--xcss-bg-panel); }
 
-/* Account controls are explicitly compact; ordinary fields remain 44px. */
-html:root .xcss-admin-shell .xcss-account-page > .xcss-content-panel { width: min(100%, 36rem); }
-html:root .xcss-admin-shell .xcss-account-form { gap: 0; }
-html:root .xcss-admin-shell .xcss-account-fields { grid-template-columns: max-content minmax(0, 1fr); gap: var(--xscs-gap) 0; padding-inline: var(--xscs-frame-inset); }
+/* Account settings use the same 44px inputs and G4 frames as other forms. */
+html:root .xcss-admin-shell .xcss-account-page > .xcss-content-panel {
+  width: min(100%, 40rem);
+  padding: var(--xscs-gap);
+}
+html:root .xcss-admin-shell .xcss-account-form { display: grid; gap: var(--xscs-gap); }
+html:root .xcss-admin-shell .xcss-account-fields {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  align-items: center;
+  gap: var(--xscs-gap);
+  padding: 0;
+}
 html:root .xcss-admin-shell .xcss-account-form .xcss-form-field { display: contents; }
-html:root .xcss-admin-shell .xcss-account-form .xcss-form-field > span { padding-inline-end: var(--xscs-text-inset); }
-html:root .xcss-admin-shell .xcss-account-form .xcss-input { --xscs-control-height: var(--xscs-row); }
+html:root .xcss-admin-shell .xcss-account-form .xcss-form-field > span {
+  min-height: var(--xscs-input-row);
+  padding: 0;
+}
+html:root .xcss-admin-shell .xcss-account-form > .xcss-actions { justify-content: flex-end; }
 html:root .xcss-admin-shell .xcss-account-page :is(h1, h2, p) { min-height: var(--xscs-row); padding: 7.2px var(--xscs-frame-inset); }
 
 @media (max-width: 64rem) {
