@@ -9,6 +9,7 @@ import shutil
 import subprocess
 import tarfile
 import tempfile
+import time
 import tomllib
 import package
 import release_sbom
@@ -221,7 +222,14 @@ def build(args):
         product_environment['CARGO_NET_OFFLINE']='true'
         sbom.inventory(snapshot,product_path/'Cargo.toml',args.product,None,product_environment,args.stage,'server',[(snapshot,revision)])
         for manifest in (helper/'Cargo.lock',snapshot/'Cargo.lock'):
-            subprocess.run(['cargo','audit','--deny','yanked','--file',str(manifest)],cwd=ROOT,check=True,env=build_environment())
+            for attempt in range(3):
+                try:
+                    subprocess.run(['cargo','audit','--deny','yanked','--file',str(manifest)],cwd=ROOT,check=True,env=build_environment())
+                    break
+                except subprocess.CalledProcessError:
+                    if attempt == 2:
+                        raise
+                    time.sleep(attempt + 1)
         ensure_external_receipt(args.stage)
         native=[sqlite_receipt.record(helper,args.stage,'setup','libexec/setup'),sqlite_receipt.record(snapshot,args.stage,'server',f'bin/{args.product}')]
         sqlite_receipt.merge(args.stage,native,[(args.stage/'share/setup-sbom.cdx.json','libexec/setup'),(args.stage/'share/server-sbom.cdx.json',f'bin/{args.product}')])

@@ -1,10 +1,14 @@
 """Retain reviewed missing license texts from their actual upstream authority."""
 import hashlib
+import http.client
 import json
 from pathlib import Path
 import re
+import ssl
 import sys
+import time
 import tomllib
+import urllib.error
 import urllib.request
 from urllib.parse import urlsplit
 
@@ -45,12 +49,27 @@ class _Redirects(urllib.request.HTTPRedirectHandler):
 
 def _fetch(url):
     _public(url)
-    with urllib.request.build_opener(_Redirects()).open(url, timeout=20) as response:
-        _public(response.geturl())
-        data = response.read(MAX_LICENSE + 1)
-    if len(data) > MAX_LICENSE:
-        raise ValueError('upstream license text exceeds its bound')
-    return data
+    for attempt in range(3):
+        try:
+            with urllib.request.build_opener(_Redirects()).open(url, timeout=20) as response:
+                _public(response.geturl())
+                data = response.read(MAX_LICENSE + 1)
+        except urllib.error.HTTPError as error:
+            if (error.code not in (408, 429) and not 500 <= error.code < 600) or attempt == 2:
+                raise
+            error.close()
+        except urllib.error.URLError as error:
+            if (not isinstance(error.reason, OSError)
+                    or isinstance(error.reason, ssl.SSLCertVerificationError) or attempt == 2):
+                raise
+        except (TimeoutError, ConnectionError, ssl.SSLEOFError, http.client.IncompleteRead):
+            if attempt == 2:
+                raise
+        else:
+            if len(data) > MAX_LICENSE:
+                raise ValueError('upstream license text exceeds its bound')
+            return data
+        time.sleep(attempt + 1)
 
 
 def _download(url, environment):
