@@ -1,9 +1,9 @@
 /* Application-owned geometry follows zxs/src/web/public/styles at f009be2ab.
  * Extents describe G4 corner bounds, not CSS circular radii. The local Rust
- * controller paints them; border-radius: 0 is the usable square fallback. */
+ * controller paints them; inputs retain a rounded native CSS fallback. */
 :root {
   --xscs-row: 36px;
-  --xscs-input-row: 44px;
+  --xscs-action-row: 44px;
   --xscs-font-ratio: .4;
   --xscs-font-size: calc(var(--xscs-row) * var(--xscs-font-ratio));
   --xscs-gap: calc(var(--xscs-row) / 2);
@@ -70,14 +70,14 @@ html:root .xcss-admin-shell .xcss-header-navigation :is(a, button) {
 html:root .xcss-admin-shell .xcss-header-navigation :is(a, button)[aria-current="page"] { text-decoration: underline; text-underline-offset: .25em; }
 html:root .xcss-admin-shell .xcss-header-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 0; margin-inline-start: auto; min-width: 0; }
 html:root .xcss-admin-shell .xcss-header-actions .xcss-button {
-  --xcss-server-corner-extent: calc(var(--xscs-input-row) / 2);
+  --xcss-server-corner-extent: calc(var(--xscs-action-row) / 2);
   justify-content: center;
   flex-shrink: 0;
-  min-width: var(--xscs-input-row);
-  min-height: var(--xscs-input-row);
-  height: var(--xscs-input-row);
+  min-width: var(--xscs-action-row);
+  min-height: var(--xscs-action-row);
+  height: var(--xscs-action-row);
   padding: 0 8px;
-  font-size: calc(var(--xscs-input-row) * var(--xscs-font-ratio));
+  font-size: calc(var(--xscs-action-row) * var(--xscs-font-ratio));
   line-height: 1;
   white-space: nowrap;
 }
@@ -135,7 +135,7 @@ html:root .xcss-admin-shell .xscs-metric { display: grid; align-content: start; 
 html:root .xcss-admin-shell .xscs-metric strong { color: var(--xcss-text-primary); font: inherit; font-variant-numeric: tabular-nums; }
 
 html:root .xcss-admin-shell :is(.xscs-toolbar, .xcss-actions) { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-start; gap: 0; min-width: 0; margin: 0; }
-html:root .xcss-admin-shell .xscs-toolbar { min-height: var(--xscs-input-row); column-gap: var(--xscs-gap); align-items: flex-end; padding: 0 var(--xscs-frame-inset) var(--xscs-gap); }
+html:root .xcss-admin-shell .xscs-toolbar { min-height: var(--xscs-row); column-gap: var(--xscs-gap); align-items: flex-end; padding: 0 var(--xscs-frame-inset) var(--xscs-gap); }
 .xscs-toolbar > :is(label, .xscs-field) { flex: 0 1 20rem; min-width: min(100%, 12rem); }
 .xscs-toolbar > .xscs-hint { flex: 1 1 10rem; min-height: var(--xscs-row); padding-block: max(0px, calc((var(--xscs-row) - 1lh) / 2)); }
 html:root .xcss-admin-shell .xcss-button {
@@ -171,7 +171,7 @@ html:root .xcss-admin-shell .xscs-form-grid > .xcss-actions { margin-inline: cal
 html:root .xcss-admin-shell :is(.xscs-field, label:has(> .xcss-input), .xcss-form-field) { display: grid; gap: 0; align-content: start; min-width: 0; margin: 0; }
 html:root .xcss-admin-shell :is(.xscs-field, .xcss-form-field) > :is(span, small, .xcss-select-label) { display: flex; align-items: center; min-height: var(--xscs-row); padding-block: max(0px, calc((var(--xscs-row) - 1lh) / 2)); color: var(--xcss-block-muted, #5f5f5f); }
 html:root .xcss-admin-shell .xcss-input {
-  --xscs-control-height: var(--xscs-input-row);
+  --xscs-control-height: var(--xscs-row);
   --xcss-server-corner-extent: calc(var(--xscs-control-height) / 2);
   display: block;
   width: 100%;
@@ -181,14 +181,13 @@ html:root .xcss-admin-shell .xcss-input {
   margin: 0;
   padding: 0 calc((var(--xscs-control-height) - 1em) / 2 - var(--xscs-control-border, 1px));
   border: var(--xscs-control-border, 1px) solid var(--xcss-block-border, #e3e3e3);
-  border-radius: 0;
+  border-radius: calc(var(--xscs-control-height) / 2);
   color: inherit;
   background: transparent;
   font-size: calc(var(--xscs-control-height) * var(--xscs-font-ratio));
   line-height: 1.5;
 }
-html:root .xcss-admin-shell .xcss-input--compact { --xscs-control-height: var(--xscs-row); }
-html:root .xcss-admin-shell textarea.xcss-input { --xcss-server-corner-extent: var(--xcss-server-corner-panel); height: auto; min-height: 7rem; padding-block: max(0px, calc((var(--xscs-control-height) - 1lh) / 2 - 1px)); resize: vertical; }
+html:root .xcss-admin-shell textarea.xcss-input { --xcss-server-corner-extent: var(--xcss-server-corner-panel); border-radius: var(--xcss-server-corner-panel); height: auto; min-height: 7rem; padding-block: max(0px, calc((var(--xscs-control-height) - 1lh) / 2 - 1px)); resize: vertical; }
 html:root .xcss-admin-shell .xcss-input:focus { border-color: var(--xcss-focus, #444); }
 html:root .xcss-admin-shell .xcss-input:disabled { opacity: .6; cursor: not-allowed; }
 html:root .xcss-admin-shell .xcss-input::placeholder { color: var(--xcss-block-muted, #5f5f5f); opacity: .8; }
@@ -275,7 +274,7 @@ html:root .xcss-admin-shell :is(dt, dd) { display: flex; align-items: center; mi
 html:root .xcss-admin-shell dt { color: var(--xcss-block-muted); }
 html:root .xcss-admin-shell .xcss-dialog { width: min(40rem, calc(100% - 2rem)); padding: var(--xscs-text-inset); border: 0; background: var(--xcss-bg-panel); }
 
-/* Account settings use the same 44px inputs and G4 frames as other forms. */
+/* Account settings share the same 36px inputs and G4 frames as other forms. */
 html:root .xcss-admin-shell .xcss-account-page > .xcss-content-panel {
   width: min(100%, 40rem);
   padding: var(--xscs-gap);
@@ -290,7 +289,7 @@ html:root .xcss-admin-shell .xcss-account-fields {
 }
 html:root .xcss-admin-shell .xcss-account-form .xcss-form-field { display: contents; }
 html:root .xcss-admin-shell .xcss-account-form .xcss-form-field > span {
-  min-height: var(--xscs-input-row);
+  min-height: var(--xscs-row);
   padding: 0;
 }
 html:root .xcss-admin-shell .xcss-account-form > .xcss-actions { justify-content: flex-end; }
@@ -414,8 +413,7 @@ html:root .xcss-admin-shell input[type="checkbox"]:focus-visible { border: 2px s
 html:root .xcss-admin-shell :is(.xcss-empty, .xcss-loading, .xscs-empty:not(.xscs-panel)) { display: flex; align-items: center; justify-content: center; text-align: center; }
 html:root .xcss-admin-shell .xscs-panel.xscs-empty { justify-items: center; text-align: center; }
 
-/* The previous imported auth layout divided a fixed card into six equal
- * tracks and could shrink inputs below 44px. Use ZXS's content-sized rows. */
+/* Content-sized auth rows keep inputs at 36px and the action at 44px. */
 html:root .xcss-auth-shell { padding: 24px; }
 html:root .xcss-auth-shell .xcss-auth-content { width: min(380px, 100%); }
 html:root .xcss-auth-shell .xcss-auth-card:has(> form) {
@@ -430,15 +428,18 @@ html:root .xcss-auth-shell .xcss-auth-card:has(> form) {
 html:root .xcss-auth-shell .xcss-auth-card > form {
   position: relative;
   inset: auto;
-  grid-template-rows: auto minmax(44px, auto) auto minmax(44px, auto) minmax(1.5em, auto) minmax(44px, auto);
+  grid-template-rows: auto minmax(var(--xscs-row), auto) auto minmax(var(--xscs-row), auto) minmax(1.5em, auto) minmax(var(--xscs-action-row), auto);
   padding: 1rem max(1.5rem, var(--xcss-server-corner-text-inset, 26px));
   font-size: max(1rem, calc(100cqw / 18));
   font-weight: 400;
   line-height: 1.5;
 }
 html:root .xcss-auth-shell .xcss-auth-card > form :is(label, span, input, button) { font: inherit; }
-html:root .xcss-auth-shell .xcss-auth-card .xcss-input,
-html:root .xcss-auth-shell .xcss-auth-card > form > button { min-height: 44px; }
+html:root .xcss-auth-shell .xcss-auth-card .xcss-input {
+  min-height: var(--xscs-row);
+  height: var(--xscs-row);
+}
+html:root .xcss-auth-shell .xcss-auth-card > form > button { min-height: var(--xscs-action-row); }
 html:root .xcss-auth-shell .xcss-auth-card .xcss-error { font-size: inherit; overflow: visible; }
 html:root .xcss-auth-shell .xcss-auth-card .xcss-form-field > span { font-size: inherit; }
 @media (max-width: 26rem), (max-height: 30rem) {
