@@ -137,11 +137,15 @@ where
         Ok(value) => value,
         Err(response) => return *response,
     };
-    if let Err(response) =
-        require_same_origin_with_uri(state.mode, &parts.headers, &parts.uri, request_id.as_ref())
-    {
-        return *response;
-    }
+    let origin = match require_same_origin_with_uri(
+        state.mode,
+        &parts.headers,
+        &parts.uri,
+        request_id.as_ref(),
+    ) {
+        Ok(origin) => origin,
+        Err(response) => return *response,
+    };
     if let Err(response) = validate_login_cookie(
         &parts.headers,
         &state.product_id,
@@ -188,7 +192,7 @@ where
         .await
     {
         Ok(authenticated) => {
-            let cookie = match crate::admin_core::session_set_cookie(
+            let mut cookie = match crate::admin_core::session_set_cookie(
                 &state.product_id,
                 state.mode,
                 &authenticated.session_token,
@@ -203,6 +207,9 @@ where
                     );
                 }
             };
+            if state.mode == AdministratorOriginMode::SameOrigin && origin.scheme() == "https" {
+                cookie.push_str("; Secure");
+            }
             VerifiedAdministrator::attach(
                 authenticated.administrator.username.clone(),
                 json_with_cookie(StatusCode::OK, &authenticated.administrator, &cookie),
@@ -348,7 +355,7 @@ fn require_same_origin_with_uri(
     headers: &HeaderMap,
     uri: &Uri,
     request_id: Option<&RequestId>,
-) -> Result<(), Box<Response>> {
+) -> Result<crate::admin_auth::VerifiedSameOrigin, Box<Response>> {
     let mut hosts = header_values(headers, crate::admin_auth::HOST_HEADER);
     if hosts.is_empty() {
         if let Some(authority) = uri.authority() {
@@ -368,7 +375,6 @@ fn require_same_origin_with_uri(
         &hosts,
         &header_values(headers, crate::admin_auth::SEC_FETCH_SITE_HEADER),
     )
-    .map(|_| ())
     .map_err(|_| {
         Box::new(error(
             StatusCode::FORBIDDEN,

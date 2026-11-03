@@ -765,7 +765,9 @@ pub fn session_cookie_name(
     require_product_id(product_id)?;
     let prefix = match mode {
         AdministratorOriginMode::ProductionHttps => "__Host-admin-",
-        AdministratorOriginMode::LoopbackDevelopmentHttp => "admin-",
+        AdministratorOriginMode::LoopbackDevelopmentHttp | AdministratorOriginMode::SameOrigin => {
+            "admin-"
+        }
     };
     Ok(format!("{prefix}{product_id}-session"))
 }
@@ -781,7 +783,9 @@ pub fn session_set_cookie(
     let name = session_cookie_name(product_id, mode)?;
     let secure = match mode {
         AdministratorOriginMode::ProductionHttps => "; Secure",
-        AdministratorOriginMode::LoopbackDevelopmentHttp => "",
+        AdministratorOriginMode::LoopbackDevelopmentHttp | AdministratorOriginMode::SameOrigin => {
+            ""
+        }
     };
     Ok(format!(
         "{name}={token}; Path=/; HttpOnly{secure}; SameSite=Strict"
@@ -795,7 +799,9 @@ pub fn session_clear_cookie(
     let name = session_cookie_name(product_id, mode)?;
     let secure = match mode {
         AdministratorOriginMode::ProductionHttps => "; Secure",
-        AdministratorOriginMode::LoopbackDevelopmentHttp => "",
+        AdministratorOriginMode::LoopbackDevelopmentHttp | AdministratorOriginMode::SameOrigin => {
+            ""
+        }
     };
     Ok(format!(
         "{name}=; Path=/; HttpOnly{secure}; SameSite=Strict; Max-Age=0"

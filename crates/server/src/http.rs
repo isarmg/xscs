@@ -62,18 +62,14 @@ impl WorkerState {
     pub fn new(
         pool: sqlx::SqlitePool,
         secrets: SecretBox,
-        production: bool,
+        _production: bool,
         static_dir: impl Into<Option<PathBuf>>,
     ) -> anyhow::Result<Self> {
         Ok(Self {
             administrator_service: Arc::new(AdministratorService::new(
                 SqliteAdministratorStore::new(pool.clone()),
             )),
-            administrator_origin_mode: if production {
-                AdministratorOriginMode::ProductionHttps
-            } else {
-                AdministratorOriginMode::LoopbackDevelopmentHttp
-            },
+            administrator_origin_mode: AdministratorOriginMode::SameOrigin,
             operations: OperationManager::new(pool.clone(), secrets.clone()),
             pool,
             secrets,
@@ -1181,6 +1177,103 @@ mod tests {
         )
         .unwrap();
         router(state, test_runtime()).unwrap()
+    }
+
+    #[tokio::test]
+    async fn browser_login_supports_http_and_proxy_https_in_all_runtime_modes() {
+        for production in [false, true] {
+            let pool = SqlitePoolOptions::new()
+                .max_connections(1)
+                .connect("sqlite::memory:")
+                .await
+                .unwrap();
+            db::initialize_empty(&pool).await.unwrap();
+            crate::test_support::seed_administrator(
+                &AdministratorService::new(SqliteAdministratorStore::new(pool.clone())),
+                "admin",
+                "correct horse battery staple",
+                u64::try_from(db::now_micros().unwrap()).unwrap(),
+            )
+            .await
+            .unwrap();
+            let application = router(
+                WorkerState::new(
+                    pool,
+                    SecretBox::new("test", [2; 32]).unwrap(),
+                    production,
+                    None,
+                )
+                .unwrap(),
+                test_runtime(),
+            )
+            .unwrap();
+            for (origin, host, password, expected, secure) in [
+                (
+                    "http://192.168.31.244:18104",
+                    "192.168.31.244:18104",
+                    "correct horse battery staple",
+                    StatusCode::OK,
+                    false,
+                ),
+                (
+                    "http://localhost",
+                    "localhost",
+                    "correct horse battery staple",
+                    StatusCode::OK,
+                    false,
+                ),
+                (
+                    "https://console.example.test",
+                    "console.example.test",
+                    "correct horse battery staple",
+                    StatusCode::OK,
+                    true,
+                ),
+                (
+                    "http://other.example.test",
+                    "192.168.31.244:18104",
+                    "correct horse battery staple",
+                    StatusCode::FORBIDDEN,
+                    false,
+                ),
+                (
+                    "http://192.168.31.244:18104",
+                    "192.168.31.244:18104",
+                    "incorrect password",
+                    StatusCode::UNAUTHORIZED,
+                    false,
+                ),
+            ] {
+                let response = application
+                    .clone()
+                    .oneshot(
+                        Request::post("/api/v1/auth/login")
+                            .header(header::CONTENT_TYPE, "application/json")
+                            .header(header::HOST, host)
+                            .header(header::ORIGIN, origin)
+                            .body(Body::from(
+                                serde_json::json!({"username":"admin","password":password})
+                                    .to_string(),
+                            ))
+                            .unwrap(),
+                    )
+                    .await
+                    .unwrap();
+                assert_eq!(
+                    response.status(),
+                    expected,
+                    "{origin}, production={production}"
+                );
+                if expected == StatusCode::OK {
+                    let cookie = response.headers()[header::SET_COOKIE].to_str().unwrap();
+                    assert!(cookie.starts_with("admin-xscs-session="));
+                    assert!(cookie.contains("; HttpOnly; SameSite=Strict"));
+                    assert_eq!(cookie.contains("; Secure"), secure);
+                } else {
+                    assert!(!response.headers().contains_key(header::SET_COOKIE));
+                }
+            }
+        }
     }
 
     #[tokio::test]

@@ -132,11 +132,11 @@ pub enum Error {
     CsrfTokenMismatch,
 }
 
-/// The only two browser deployment modes supported by the current policy.
-/// Production is HTTPS-only. Plain HTTP exists solely for an actual loopback
-/// host during local development; there is no proxy/header fallback mode.
+/// Browser origin policy. `SameOrigin` supports HTTP deployments and HTTPS
+/// terminated by a reverse proxy without trusting forwarded headers.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum AdministratorOriginMode {
+    SameOrigin,
     ProductionHttps,
     LoopbackDevelopmentHttp,
 }
@@ -145,14 +145,14 @@ impl AdministratorOriginMode {
     pub const fn scheme(self) -> &'static str {
         match self {
             Self::ProductionHttps => "https",
-            Self::LoopbackDevelopmentHttp => "http",
+            Self::LoopbackDevelopmentHttp | Self::SameOrigin => "http",
         }
     }
 
     pub const fn default_port(self) -> u16 {
         match self {
             Self::ProductionHttps => 443,
-            Self::LoopbackDevelopmentHttp => 80,
+            Self::LoopbackDevelopmentHttp | Self::SameOrigin => 80,
         }
     }
 }
@@ -390,8 +390,9 @@ where
 /// Enforce the current browser same-origin policy from complete header lists.
 ///
 /// The caller must pass all `Origin`, effective `Host`/HTTP2 `:authority`, and
-/// `Sec-Fetch-Site` values. The API intentionally has no missing-header,
-/// forwarded-header, alternate-origin, or proxy-trust fallback. A deployment
+/// `Sec-Fetch-Site` values. HTTP browsers can omit Fetch Metadata in `SameOrigin`
+/// mode; supplied values must still be exactly `same-origin`. There is no
+/// missing-Origin, forwarded-header, alternate-origin or proxy-trust fallback. A deployment
 /// behind a reverse proxy must first produce the one authoritative external
 /// Host value according to that product's trusted-proxy boundary.
 pub fn require_administrator_same_origin<OriginValue, HostValue, SiteValue>(
@@ -407,11 +408,14 @@ where
 {
     let origin = require_single_security_header_value(ORIGIN_HEADER, origin_values)?;
     let host = require_single_security_header_value(HOST_HEADER, host_values)?;
-    let site = require_single_security_header_value(SEC_FETCH_SITE_HEADER, sec_fetch_site_values)?;
-    if site != "same-origin" {
-        return Err(Error::InvalidSecurityHeaderValue {
-            name: SEC_FETCH_SITE_HEADER,
-        });
+    if mode != AdministratorOriginMode::SameOrigin || !sec_fetch_site_values.is_empty() {
+        let site =
+            require_single_security_header_value(SEC_FETCH_SITE_HEADER, sec_fetch_site_values)?;
+        if site != "same-origin" {
+            return Err(Error::InvalidSecurityHeaderValue {
+                name: SEC_FETCH_SITE_HEADER,
+            });
+        }
     }
 
     verify_origin_host(mode, origin, host)
@@ -460,17 +464,26 @@ fn verify_origin_host(
             .ok_or(Error::InvalidSecurityHeaderValue {
                 name: ORIGIN_HEADER,
             })?;
-    if scheme != mode.scheme() {
+    if mode != AdministratorOriginMode::SameOrigin && scheme != mode.scheme() {
         return Err(Error::UnexpectedOriginScheme {
             expected: mode.scheme(),
         });
     }
-    let origin_authority = parse_authority(origin_authority, mode.default_port()).ok_or(
+    let (scheme, default_port) = match scheme {
+        "http" => ("http", 80),
+        "https" => ("https", 443),
+        _ => {
+            return Err(Error::UnexpectedOriginScheme {
+                expected: "http or https",
+            });
+        }
+    };
+    let origin_authority = parse_authority(origin_authority, default_port).ok_or(
         Error::InvalidSecurityHeaderValue {
             name: ORIGIN_HEADER,
         },
     )?;
-    let host_authority = parse_authority(host, mode.default_port())
+    let host_authority = parse_authority(host, default_port)
         .ok_or(Error::InvalidSecurityHeaderValue { name: HOST_HEADER })?;
 
     if mode == AdministratorOriginMode::LoopbackDevelopmentHttp
@@ -482,7 +495,7 @@ fn verify_origin_host(
         return Err(Error::OriginHostMismatch);
     }
     Ok(VerifiedSameOrigin {
-        scheme: mode.scheme(),
+        scheme,
         host: origin_authority.host.canonical_text(),
         port: origin_authority.port,
     })
