@@ -444,12 +444,14 @@ try {
       await page.setViewportSize({width: 1440, height: 1000});
 
       await page.getByRole('button', {name: '新建实例', exact: true}).click();
-      const create = page.getByRole('button', {name: '创建实例并生成密码', exact: true});
+      const createPanel = page.getByRole('region', {name: '新建实例', exact: true});
+      const create = createPanel.getByRole('button', {name: '创建实例并生成密码', exact: true});
+      const newName = createPanel.getByLabel('实例名称', {exact: true});
       await expect(create).toBeDisabled();
-      await page.getByLabel('实例名称', {exact: true}).fill('新增控制端');
-      const newRole = select('新实例角色');
-      const roleBox=await newRole.boundingBox(), nameBox=await page.getByLabel('实例名称',{exact:true}).boundingBox();
-      assert.ok(Math.abs(roleBox.height-44)<0.25 && Math.abs(nameBox.height-44)<0.25);
+      await newName.fill('新增控制端');
+      const newRole = createPanel.getByRole('combobox', {name: '新实例角色', exact: true});
+      const roleBox=await newRole.boundingBox(), nameBox=await newName.boundingBox();
+      assert.ok(Math.abs(roleBox.height-36)<0.25 && Math.abs(nameBox.height-36)<0.25);
       assert.ok(Math.abs(roleBox.y-nameBox.y)<0.5 && Math.abs(roleBox.y+roleBox.height-nameBox.y-nameBox.height)<0.5, 'create role and name share top/bottom edges');
       await newRole.focus();
       await newRole.press('Enter');
