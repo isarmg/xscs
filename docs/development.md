@@ -12,4 +12,4 @@ Rust 检查为 `cargo fmt --all -- --check`、`cargo test --locked --workspace -
 
 配套 xscc 分支已接入实例绑定、平台私有存储、管理生命周期、授权列表与原生会话证明。客户端五平台和被控端三平台的范围见控制授权合同；物理设备的实际串流、前后台切换与恢复仍需要单独验收。
 
-当前正式版号为 `2.0.0`，服务端、协议 crate、Web 包和 `release.json` 保持一致。当前开发工作树数据格式为 `v4` / schema revision 4，新增固定实例 backend。服务不会自动迁移旧库；确切 v3 可使用显式离线命令保留实例、凭据与任务升级到 v4，其它旧格式仍被拒绝；见 [One-KVM 接入](one-kvm.md)。安装与发行使用现有 XSSI 契约；正式打包要求干净源码和精确指向 HEAD 的 annotated `v2.0.0` 标签。见 [2.0.0 发行说明](releases/2.0.0.md)。
+当前正式版号为 `3.0.0`，服务端、协议 crate、Web 包和 `release.json` 保持一致。当前数据格式为 `v4` / schema revision 4，新增固定实例 backend。服务不会自动迁移旧库；确切 v3 可使用显式离线命令保留实例、凭据与任务升级到 v4，其它旧格式仍被拒绝；见 [One-KVM 接入](one-kvm.md)。安装与发行使用现有 XSSI 契约；正式打包要求干净源码和精确指向 HEAD 的 annotated `v3.0.0` 标签。见 [3.0.0 发行说明](releases/3.0.0.md)。

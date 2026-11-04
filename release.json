@@ -1,7 +1,7 @@
 {
   "manifest_format": "xscs-release-v1",
   "application": "xscs",
-  "version": "2.0.0",
+  "version": "3.0.0",
   "api_prefix": "/api/v1",
   "schema_revision": 4,
   "schema_sha256": "4e001899b022c50b0f04427751c7e772a3f9b04e17fbb4f7a2216561425e7c6e",

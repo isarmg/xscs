@@ -3019,7 +3019,7 @@ checksum = "3ad82d2a33cdc9674dc7465672f271e096168fcdbe0f799d9e6db8c5892679dc"
 
 [[package]]
 name = "xscs"
-version = "2.0.0"
+version = "3.0.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -3103,7 +3103,7 @@ dependencies = [
 
 [[package]]
 name = "xscs-protocol"
-version = "2.0.0"
+version = "3.0.0"
 dependencies = [
  "hex",
  "schemars",

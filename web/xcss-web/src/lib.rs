@@ -20,7 +20,7 @@ const API: &str = "/api/v1/rustdesk/devices";
 pub fn start() {
     xcss_web::mount_server("root", || {
         component_view(
-            &AdminShell,
+            AdminShell,
             component_props_builder(&AdminShell)
                 .product("xscs")
                 .landing("#instances")
@@ -32,7 +32,7 @@ pub fn start() {
 
 fn failure(error: RwSignal<Option<ApiError>>) -> impl IntoView {
     component_view(
-        &Failure,
+        Failure,
         component_props_builder(&Failure).error(error).build(),
     )
 }
@@ -230,8 +230,8 @@ fn application() -> impl IntoView {
         );
     });
     View::new(h::section().class("xcss-content-stack xscs-workspace").child((
-        component_view(&HeaderActions, component_props_builder(&HeaderActions).create(open_create).revision(revision).busy(busy).build()),
-        component_view(&HeaderNavigation, component_props_builder(&HeaderNavigation)
+        component_view(HeaderActions, component_props_builder(&HeaderActions).create(open_create).revision(revision).busy(busy).build()),
+        component_view(HeaderNavigation, component_props_builder(&HeaderNavigation)
             .label(t("实例导航", "Instance navigation"))
             .children(ToChildren::to_children(move || (
                 h::a().href("#instances").attr("aria-current", move || (!location.get().starts_with("details/") && location.get() != "account").then_some("page"))
@@ -250,13 +250,13 @@ fn application() -> impl IntoView {
                     h::input().class("xcss-input").name("instance_name").maxlength("32").required(true)
                         .prop("value", move || new_name.get()).on(xcss_web::ev::input, move |event| new_name.set(event_target_value(&event)))
                         .disabled(IntoAttributeValue::into_attribute_value(move || busy.get())))),
-                component_view(&Select, component_props_builder(&Select)
+                component_view(Select, component_props_builder(&Select)
                     .label(t("新实例角色", "New instance role")).compact(false)
                     .options(Signal::derive(|| vec![SelectOption::new("controlled", t("被控端", "Controlled host")), SelectOption::new("controller", t("控制端", "Controller"))]))
                     .value(Signal::derive(move || if new_role.get() == DeviceRole::Controller { "controller".into() } else { "controlled".into() }))
                     .on_change(Callback::new(move |value: String| new_role.set(if value == "controller" { DeviceRole::Controller } else { DeviceRole::Controlled })))
                     .disabled(Signal::derive(move || busy.get())).build()),
-                component_view(&Select, component_props_builder(&Select)
+                component_view(Select, component_props_builder(&Select)
                     .label(t("实例类型", "Instance type")).compact(false)
                     .options(Signal::derive(|| vec![SelectOption::new("rustdesk", "RustDesk".into()), SelectOption::new("one_kvm", "One-KVM".into())]))
                     .value(Signal::derive(move || if new_backend.get() == DeviceBackend::OneKvm { "one_kvm".into() } else { "rustdesk".into() }))
@@ -273,9 +273,9 @@ fn application() -> impl IntoView {
         )))),
         IntoRender::into_render(move || {
             if location.get() == "account" {
-                View::new(component_view(&AccountPage, component_props_builder(&AccountPage).build())).into_any()
+                View::new(component_view(AccountPage, ())).into_any()
             } else if location.get().starts_with("details/") {
-                View::new(component_view(&Show, component_props_builder(&Show)
+                View::new(component_view(Show, component_props_builder(&Show)
                     .when(move || index.with(|positions| positions.contains_key(&selected.get())))
                     .fallback(move || h::section().class("xscs-panel xscs-empty").child(IntoRender::into_render(move || {
                         if data.get().is_none() && load_error.get().is_none() {
@@ -284,7 +284,7 @@ fn application() -> impl IntoView {
                             h::p().class("xscs-hint").child(t("实例可能已被删除。返回实例列表，或刷新后重试。", "The instance may have been deleted. Return to the instance list or refresh to retry.")),
                             h::a().class("xcss-button").href("#instances").child(t("返回实例列表", "Back to instances")))).into_any() }
                     })))
-                    .children(ToChildren::to_children(move || component_view(&For, component_props_builder(&For)
+                    .children(ToChildren::to_children(move || component_view(For, component_props_builder(&For)
                         .each(move || find_device(devices, index, &selected.get()).into_iter().collect::<Vec<_>>())
                         .key(|v: &Device| v.id.clone())
                         .children(move |initial: Device| {
@@ -336,7 +336,7 @@ fn instances(
             h::div().class("xscs-toolbar").child((
                 h::label().class("xscs-field").child((h::span().child(t("搜索实例", "Search instances")), h::input().class("xcss-input xcss-input--compact").r#type("search")
                     .placeholder(t("名称、实例 ID 或平台", "Name, instance ID or platform")).prop("value", move || query.get()).on(xcss_web::ev::input, move |event| query.set(event_target_value(&event))))),
-                component_view(&Select, component_props_builder(&Select)
+                component_view(Select, component_props_builder(&Select)
                     .label(t("筛选角色", "Filter by role"))
                     .options(Signal::derive(|| vec![SelectOption::new("all", t("全部角色", "All roles")), SelectOption::new("controller", t("控制端", "Controller")), SelectOption::new("controlled", t("被控端", "Controlled host"))]))
                     .value(role_filter.into()).on_change(Callback::new(move |value| role_filter.set(value))).build()),
@@ -348,7 +348,7 @@ fn instances(
                 else { t("没有符合搜索或角色筛选的实例。", "No instances match the search and role filter.") }))),
             h::div().class("xcss-table-scroll").child(h::table().class("xcss-table xscs-instance-table").aria_label(t("远程控制实例", "Remote control instances")).child((
                 h::thead().child(h::tr().child([t("名称", "Name"), t("角色", "Role"), t("类型", "Type"), t("管理连接", "Management connection"), t("引擎状态", "Engine status"), t("平台", "Platform"), t("最近连接", "Last seen"), t("操作", "Actions")].into_iter().map(|label| h::th().child(label)).collect_view())),
-                h::tbody().child(component_view(&For, component_props_builder(&For).each(move || filtered.get()).key(|v: &Device| v.id.clone())
+                h::tbody().child(component_view(For, component_props_builder(&For).each(move || filtered.get()).key(|v: &Device| v.id.clone())
                     .children(move |initial: Device| {
                         let device = cached_device(devices, index, initial);
                         instance_row(device, candidate, busy, error, revision)
@@ -956,7 +956,7 @@ fn access_editor(
             if stale.get() { t("已保留未保存的选择。授权需要重新核对；点击“重新读取授权”后将以服务端结果替换当前选择。", "Unsaved selections are preserved. Reload permissions to reconcile; reloading replaces this draft with server values.") }
             else { t("有未保存的选择，实例刷新不会覆盖。保存时核对授权版本；重新读取授权会以服务端结果替换当前选择。", "Unsaved selections survive instance refreshes. Saving checks the access revision; reloading replaces the draft with server values.") }))),
         h::fieldset().disabled(IntoAttributeValue::into_attribute_value(move || blocked.get())).child((h::legend().child(t("授权对端", "Allowed peers")),
-            component_view(&For, component_props_builder(&For).each(move || { let role = device.with(|v| v.role); devices.with(|items| items.iter().filter(|v| v.role != role).cloned().collect::<Vec<_>>()) }).key(|v: &Device| v.id.clone())
+            component_view(For, component_props_builder(&For).each(move || { let role = device.with(|v| v.role); devices.with(|items| items.iter().filter(|v| v.role != role).cloned().collect::<Vec<_>>()) }).key(|v: &Device| v.id.clone())
                 .children(move |initial: Device| {
                     let id = StoredValue::new(initial.id.clone());
                     let peer = cached_device(devices, index, initial);
