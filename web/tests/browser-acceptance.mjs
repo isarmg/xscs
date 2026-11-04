@@ -16,7 +16,13 @@ try {
     try {
       const page = await browser.newPage({locale: 'zh-CN', viewport: {width: 1440, height: 1000}});
       const errors = [];
-      page.on('pageerror', error => errors.push(error.message));
+      page.on('console', message => {
+        if (message.type() === 'error') console.error(`[${engine.name()} browser console] ${message.text()}`);
+      });
+      page.on('pageerror', error => {
+        errors.push(error.message);
+        console.error(`[${engine.name()} page error at ${page.url()}] ${error.stack || error.message}`);
+      });
       await page.emulateMedia({colorScheme: 'light'});
       await page.addInitScript(() => localStorage.removeItem('sarmg:theme'));
       const diagnostics = {backend: 'rustdesk', execution_mode: 'embedded', integration_state: 'awaiting_integration', rustdesk_version: null};
