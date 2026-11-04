@@ -11,7 +11,8 @@ const evidencePrefix = process.env.XCSS_BROWSER_EVIDENCE_PREFIX || "";
 if (evidenceDirectory) await mkdir(evidenceDirectory, {recursive: true});
 const server = await preview({preview: {host: '127.0.0.1', port: 0, strictPort: true}});
 try {
-  for (const engine of [chromium, firefox]) {
+  // Repeat teardown and polling paths to expose intermittent runtime failures.
+  for (const engine of Array.from({length: 5}, () => [chromium, firefox]).flat()) {
     const browser = await engine.launch();
     try {
       const page = await browser.newPage({locale: 'zh-CN', viewport: {width: 1440, height: 1000}});
